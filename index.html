@@ -4,58 +4,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DISRUPT FM Portal v8.0</title>
+    <title>DISRUPT FM | Operations Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
         
         :root {
             --primary: #4f46e5;
-            --success: #10b981;
-            --danger: #f43f5e;
-            --warning: #f59e0b;
+            --bg: #f8fafc;
         }
 
         body { 
-            font-family: 'Inter', sans-serif; 
-            -webkit-tap-highlight-color: transparent; 
-            background: #000000;
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background: var(--bg);
+            color: #0f172a;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
         }
 
         .hide-scroll::-webkit-scrollbar { display: none; }
         .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
 
-        .neo-blur {
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
-            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.4);
         }
 
         .premium-card {
-            background: white;
-            border-radius: 2rem;
-            border: 1px solid rgba(226, 232, 240, 0.6);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.01);
+            background: #ffffff;
+            border: 1px solid #f1f5f9;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-
         .premium-card:hover {
+            box-shadow: 0 12px 20px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
             transform: translateY(-2px);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
         }
 
-        .slide-up {
-            animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
 
-        @keyframes slideUp {
-            from { transform: translateY(20px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .animate-slideDown { animation: slideDown 0.3s ease-out forwards; }
     </style>
     <script>
-        // Safety check for Netlify/GitHub Pages deployments to prevent JS crashes
         if (typeof process === 'undefined') {
             window.process = { env: { API_KEY: '' } };
         }
@@ -63,15 +64,16 @@
 <script type="importmap">
 {
   "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "@google/genai": "https://esm.sh/@google/genai@^1.37.0"
+    "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
 </head>
-<body class="antialiased overflow-hidden">
+<body class="antialiased">
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
 </body>

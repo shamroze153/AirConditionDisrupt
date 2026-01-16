@@ -27,7 +27,7 @@ export interface Ticket {
   remarks?: string;
   gasUsedKG?: number;
   gasType?: string;
-  technician?: string; // Added for checklist archive data
+  technician?: string;
 }
 
 export interface GasTransaction {
@@ -42,6 +42,7 @@ export interface GasTransaction {
 export interface PerformanceLogEntry {
   tech: string;
   points: number;
+  reason?: string;
 }
 
 export interface HvacStats {

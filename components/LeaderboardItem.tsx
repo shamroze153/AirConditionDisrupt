@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { PerformanceLogEntry } from '../types';
-import { TECHNICIANS, MERIT_REASONS, DEMERIT_REASONS } from '../constants';
-import { postAction } from '../services/api';
+import { PerformanceLogEntry } from '../types.ts';
+import { TECHNICIANS, MERIT_REASONS, DEMERIT_REASONS } from '../constants.ts';
+import { postAction } from '../services/api.ts';
 
 interface Props {
   performanceLogs: PerformanceLogEntry[];
@@ -21,7 +21,6 @@ const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, s
   const [points, setPoints] = useState(MERIT_REASONS[0].points);
   const [customReason, setCustomReason] = useState('');
 
-  // CORRECT LOGIC: Merit = sum(positives), Demerit = abs(sum(negatives)), Total = Merit - Demerit
   const scores = useMemo(() => {
     return TECHNICIANS.map(tech => {
       const techEntries = performanceLogs.filter(log => log.tech === tech);
@@ -35,28 +34,20 @@ const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, s
   const handleAdminClick = (tech?: string) => {
     if (tech) setTargetTech(tech);
     const newCount = clickCount + 1;
-    if (newCount >= 5) {
-      setShowAdmin(true);
-      setClickCount(0);
-    } else {
-      setClickCount(newCount);
-    }
+    if (newCount >= 5) { setShowAdmin(true); setClickCount(0); } 
+    else { setClickCount(newCount); }
   };
 
   const handleApplyPoints = async () => {
     const finalReason = reason === 'Others' ? customReason : reason;
     const finalPoints = adminType === 'demerit' ? -Math.abs(points) : Math.abs(points);
-    
     const fd = new FormData();
     fd.append('action', 'update_points');
     fd.append('technician', targetTech);
     fd.append('points', String(finalPoints));
     fd.append('reason', finalReason);
-
     showToast?.("Syncing Leaderboard...");
     await postAction(fd);
-
-    showToast?.("Score Adjusted Successfully");
     setShowAdmin(false);
     setCustomReason('');
     onRefresh?.();
@@ -72,90 +63,41 @@ const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, s
   };
 
   return (
-    <div className={`space-y-3 ${compact ? 'max-h-32 overflow-hidden' : ''}`}>
+    <div className={`space-y-2.5 ${compact ? 'max-h-32 overflow-hidden' : ''}`}>
       {scores.slice(0, limit).map((s, i) => {
         const medals = ["🥇", "🥈", "🥉", "🏅"];
-        const rankColors = ["text-yellow-400", "text-slate-300", "text-amber-600", "text-indigo-400"];
-        
+        const rankColors = ["text-yellow-400", "text-slate-300", "text-amber-600", "text-indigo-300"];
         return (
-          <div 
-            key={i} 
-            onClick={() => handleAdminClick(s.name)}
-            className={`p-4 rounded-[1.8rem] flex items-center justify-between border transition-all cursor-pointer group active:scale-[0.98] ${compact ? 'bg-slate-50 border-slate-100 hover:bg-white' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}
-          >
-            <div className="flex items-center gap-4">
-              <div className={`w-10 h-10 rounded-[1rem] flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform ${compact ? 'bg-white text-indigo-600' : 'bg-white/10'} ${rankColors[i]}`}>
-                {medals[i] || "🏅"}
-              </div>
+          <div key={i} onClick={() => handleAdminClick(s.name)} className={`p-3.5 rounded-2xl flex items-center justify-between border transition-all cursor-pointer group active:scale-[0.99] ${compact ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-50 hover:border-indigo-100 shadow-sm'}`}>
+            <div className="flex items-center gap-3.5">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-inner group-hover:scale-105 transition-transform bg-slate-50 ${rankColors[i] || 'text-slate-300'}`}>{medals[i] || "🏅"}</div>
               <div>
-                <h4 className={`font-black uppercase text-[10px] tracking-widest leading-none ${compact ? 'text-slate-900' : 'text-white'}`}>{s.name}</h4>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-[7px] font-black text-emerald-500 uppercase">+{s.merit} Merit</span>
-                  <span className="text-[7px] font-black text-rose-500 uppercase">-{s.demerit} Demerit</span>
-                </div>
+                <h4 className="font-black uppercase text-[10px] tracking-widest leading-none text-slate-900 italic">{s.name}</h4>
+                <div className="flex items-center gap-2 mt-1.5"><span className="text-[7px] font-black text-emerald-500 uppercase">+{s.merit}</span><span className="text-[7px] font-black text-rose-500 uppercase">-{s.demerit}</span></div>
               </div>
             </div>
-            
             <div className="text-right">
-              <span className={`text-xl font-black leading-none block ${compact ? 'text-slate-900' : 'text-white'}`}>{s.total}</span>
-              <span className={`text-[7px] font-black uppercase tracking-widest mt-1 block opacity-30 ${compact ? 'text-slate-400' : 'text-white'}`}>TOTAL</span>
+              <span className="text-xl font-black leading-none block text-slate-900 tracking-tighter italic">{s.total}</span>
+              <span className="text-[7px] font-black uppercase tracking-widest mt-1 block opacity-30 text-slate-400">POINTS</span>
             </div>
           </div>
         );
       })}
 
       {showAdmin && (
-        <div className="fixed inset-0 bg-slate-900/95 z-[200] flex items-center justify-center p-6 backdrop-blur-xl animate-fadeIn">
-           <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl border border-white/10">
-              <div className="flex justify-between items-center mb-8">
-                 <div>
-                   <h3 className="text-2xl font-black text-slate-900 leading-none">Point Override</h3>
-                   <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 tracking-widest">Adjust Ranking Hub</p>
+        <div className="fixed inset-0 bg-slate-950/95 z-[250] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl">
+              <div className="flex justify-between items-center mb-6"><div><h3 className="text-2xl font-black text-slate-900 leading-none italic uppercase">Override</h3><p className="text-[8px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">Manual Merit Control</p></div><button onClick={() => setShowAdmin(false)} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-300 hover:text-rose-500 active:scale-90"><i className="fas fa-times text-lg"></i></button></div>
+              <div className="space-y-4">
+                 <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button onClick={() => { setAdminType('merit'); handleReasonChange(MERIT_REASONS[0].label); }} className={`flex-1 py-2 rounded-lg text-[8px] font-black transition-all ${adminType === 'merit' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-400'}`}>MERIT</button>
+                    <button onClick={() => { setAdminType('demerit'); handleReasonChange(DEMERIT_REASONS[0].label); }} className={`flex-1 py-2 rounded-lg text-[8px] font-black transition-all ${adminType === 'demerit' ? 'bg-white shadow-md text-rose-600' : 'text-slate-400'}`}>DEMERIT</button>
                  </div>
-                 <button onClick={() => setShowAdmin(false)} className="w-12 h-12 bg-slate-50 rounded-full text-slate-400 hover:text-rose-500 border border-slate-100 transition-colors shadow-inner"><i className="fas fa-times text-xl"></i></button>
-              </div>
-
-              <div className="space-y-5">
-                 <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
-                    <button onClick={() => { setAdminType('merit'); handleReasonChange(MERIT_REASONS[0].label); }} className={`flex-1 py-3 rounded-xl text-[10px] font-black transition-all ${adminType === 'merit' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-400'}`}>MERIT (+)</button>
-                    <button onClick={() => { setAdminType('demerit'); handleReasonChange(DEMERIT_REASONS[0].label); }} className={`flex-1 py-3 rounded-xl text-[10px] font-black transition-all ${adminType === 'demerit' ? 'bg-white shadow-md text-rose-600' : 'text-slate-400'}`}>DEMERIT (-)</button>
-                 </div>
-
-                 <div className="space-y-4">
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Target Tech</label>
-                      <select value={targetTech} onChange={(e) => setTargetTech(e.target.value)} className="w-full bg-transparent font-black text-sm outline-none cursor-pointer">
-                         {TECHNICIANS.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </div>
-
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Reasoning</label>
-                      <select value={reason} onChange={(e) => handleReasonChange(e.target.value)} className="w-full bg-transparent font-black text-sm outline-none cursor-pointer">
-                         {(adminType === 'merit' ? MERIT_REASONS : DEMERIT_REASONS).map(r => <option key={r.label} value={r.label}>{r.label}</option>)}
-                         <option value="Others">Manual Reason Entry</option>
-                      </select>
-                    </div>
-
-                    {reason === 'Others' && (
-                      <input 
-                        type="text" 
-                        placeholder="Manual Reason..."
-                        value={customReason}
-                        onChange={(e) => setCustomReason(e.target.value)}
-                        className="w-full bg-white p-4 rounded-2xl border-2 border-indigo-500 font-black text-sm outline-none"
-                      />
-                    )}
-
-                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest">Points Value (Abs)</label>
-                      <input type="number" value={points} onChange={(e) => setPoints(Math.abs(Number(e.target.value)))} className={`w-full bg-transparent font-black text-3xl outline-none ${adminType === 'merit' ? 'text-emerald-600' : 'text-rose-600'}`} />
-                    </div>
-                 </div>
-
-                 <button onClick={handleApplyPoints} className={`w-full py-6 rounded-[2rem] font-black uppercase text-xs shadow-2xl active:scale-95 transition-all mt-6 tracking-[0.2em] text-white ${adminType === 'merit' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
-                    Confirm Adjustment
-                 </button>
+                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Target</label><select value={targetTech} onChange={e => setTargetTech(e.target.value)} className="w-full bg-transparent font-black text-xs outline-none">{TECHNICIANS.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Reason</label><select value={reason} onChange={e => handleReasonChange(e.target.value)} className="w-full bg-transparent font-black text-xs outline-none">{(adminType === 'merit' ? MERIT_REASONS : DEMERIT_REASONS).map(r => <option key={r.label} value={r.label}>{r.label}</option>)}<option value="Others">Manual Entry</option></select></div>
+                 {reason === 'Others' && <input type="text" placeholder="Specify..." value={customReason} onChange={e => setCustomReason(e.target.value)} className="w-full bg-white p-3.5 rounded-xl border-2 border-indigo-500 font-black text-xs outline-none" />}
+                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100"><label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Points</label><input type="number" value={points} onChange={e => setPoints(Math.abs(Number(e.target.value)))} className={`w-full bg-transparent font-extrabold text-3xl outline-none ${adminType === 'merit' ? 'text-emerald-600' : 'text-rose-600'}`} /></div>
+                 <button onClick={handleApplyPoints} className={`w-full py-5 rounded-2xl font-black uppercase text-[10px] shadow-2xl active:scale-95 transition-all mt-4 tracking-[0.2em] text-white ${adminType === 'merit' ? 'bg-emerald-600' : 'bg-rose-600'}`}>Confirm Adjustment</button>
               </div>
            </div>
         </div>
