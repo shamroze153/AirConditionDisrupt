@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Asset, Ticket, StatsResponse, ChecklistType } from '../types';
-import GasStatus from './GasStatus';
-import LeaderboardItem from './LeaderboardItem';
-import { updateAssetStatus, getReport, logInsight, addAsset } from '../services/api';
+import { Asset, Ticket, StatsResponse, ChecklistType } from '../types.ts';
+import GasStatus from './GasStatus.tsx';
+import LeaderboardItem from './LeaderboardItem.tsx';
+import { updateAssetStatus, getReport, logInsight, addAsset } from '../services/api.ts';
 
 interface Props {
   assets: Asset[];

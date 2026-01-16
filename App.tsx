@@ -1,15 +1,15 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Asset, Ticket, AppTab, StatsResponse, ChecklistType } from './types';
-import { fetchAssets, fetchStats, postAction } from './services/api';
-import { TECHNICIANS } from './constants';
-import LandingView from './components/LandingView';
-import MenuView from './components/MenuView';
-import DashboardView from './components/DashboardView';
-import OpsView from './components/OpsView';
-import TechView from './components/TechView';
-import ChecklistView from './components/ChecklistView';
-import NotificationToast from './components/NotificationToast';
+import { Asset, Ticket, AppTab, StatsResponse, ChecklistType } from './types.ts';
+import { fetchAssets, fetchStats, postAction } from './services/api.ts';
+import { TECHNICIANS } from './constants.ts';
+import LandingView from './components/LandingView.tsx';
+import MenuView from './components/MenuView.tsx';
+import DashboardView from './components/DashboardView.tsx';
+import OpsView from './components/OpsView.tsx';
+import TechView from './components/TechView.tsx';
+import ChecklistView from './components/ChecklistView.tsx';
+import NotificationToast from './components/NotificationToast.tsx';
 
 const App: React.FC = () => {
   const [screen, setScreen] = useState<'landing' | 'menu' | 'app' | 'checklist'>('landing');
@@ -115,7 +115,7 @@ const App: React.FC = () => {
       {toastMsg && <NotificationToast message={toastMsg} />}
       
       {isLoading && !connError && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] neo-blur px-6 py-2.5 rounded-full shadow-xl border border-slate-100 flex items-center gap-3 animate-slideDown">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] neo-blur px-6 py-2.5 rounded-full shadow-xl border border-indigo-100 flex items-center gap-3 animate-slideDown">
            <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-ping"></div>
            <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">Sync Active...</span>
         </div>
