@@ -1,0 +1,7 @@
+{
+  "name": "DISRUPT FM Portal v7.5",
+  "description": "A comprehensive Facilities Management portal for AC/HVAC maintenance, tracking master assets, complaints, checklist completion, and technician performance.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

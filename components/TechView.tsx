@@ -1,0 +1,399 @@
+
+import React, { useState, useMemo } from 'react';
+import { Asset, Ticket, StatsResponse, GasTransaction, ChecklistType } from '../types';
+import { TECHNICIANS, TOOLS_LIST, GAS_TYPES } from '../constants';
+import { postAction, logGasTransaction, submitDemand } from '../services/api';
+import LeaderboardItem from './LeaderboardItem';
+import { GoogleGenAI } from "@google/genai";
+
+interface Props {
+  attendance: Record<string, boolean>;
+  toggleAttendance: (tech: string) => void;
+  tickets: Ticket[];
+  assets: Asset[];
+  onOpenChecklist: (zoneIdx: number, tech: string) => void;
+  showToast: (msg: string) => void;
+  onRefresh: () => void;
+  stats: StatsResponse | null;
+}
+
+const TechView: React.FC<Props> = ({ attendance, toggleAttendance, tickets, assets, onOpenChecklist, showToast, onRefresh, stats }) => {
+  const [selectedTech, setSelectedTech] = useState<string | null>(null);
+  const [view, setView] = useState<'hub' | 'materials' | 'tools' | 'ai'>('hub');
+  const [resolveTicket, setResolveTicket] = useState<Ticket | null>(null);
+  const [remarks, setRemarks] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // AI State
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Resolution Sub-State
+  const [workType, setWorkType] = useState<'Minor' | 'Major'>('Minor');
+  const [gasUsed, setGasUsed] = useState(false);
+  const [gasAmount, setGasAmount] = useState<number>(0);
+  const [selectedGasType, setSelectedGasType] = useState(GAS_TYPES[0].name);
+
+  // Material Demand State
+  const [demandDetails, setDemandDetails] = useState('');
+  const [isGasDemand, setIsGasDemand] = useState(false);
+  const [demandGasType, setDemandGasType] = useState(GAS_TYPES[0].name);
+  const [demandGasAmount, setDemandGasAmount] = useState(0);
+
+  // Tools State
+  const [tools, setTools] = useState(() => {
+    const stored = localStorage.getItem('fm_tools_inventory');
+    return stored ? JSON.parse(stored) : TOOLS_LIST;
+  });
+  const [isAdminTools, setIsAdminTools] = useState(false);
+  const [toolClickCount, setToolClickCount] = useState(0);
+
+  const techTasks = useMemo(() => tickets.filter(t => t.assignedTo === selectedTech && !['Resolved', 'Resolved by Technician'].includes(t.status)), [tickets, selectedTech]);
+  const gasStocks = useMemo(() => stats?.hvac?.gasStocks || {}, [stats]);
+
+  // ZONE PROGRESS
+  const zoneStats = useMemo(() => {
+    return [0, 1, 2, 3].map(idx => {
+      const zoneAssets = assets.filter(a => {
+        const id = Number(a.id);
+        if (idx === 0) return id >= 1 && id <= 40;
+        if (idx === 1) return id >= 41 && id <= 82;
+        if (idx === 2) return id >= 83 && id <= 121;
+        if (idx === 3) return id >= 122 && id <= 161;
+        return false;
+      });
+      const total = zoneAssets.length || 1;
+      const getPct = (doneList: string[]) => Math.round((zoneAssets.filter(a => doneList.includes(a.tag)).length / total) * 100);
+      return {
+        daily: getPct(stats?.hvac?.inspection || []),
+        monthly: getPct(stats?.hvac?.filters || []),
+        quarterly: getPct(stats?.hvac?.quarterly || [])
+      };
+    });
+  }, [assets, stats]);
+
+  const handleResolve = async () => {
+    if (!resolveTicket || !selectedTech) return;
+    setIsProcessing(true);
+    const fd = new FormData();
+    fd.append('action', 'resolve_ticket');
+    fd.append('rowIndex', String(resolveTicket.rowIndex));
+    fd.append('assetTag', resolveTicket.assetTag);
+    fd.append('status', 'Resolved');
+    fd.append('resolvedBy', selectedTech);
+    fd.append('remarks', remarks || `${workType} Repair completed`);
+    fd.append('workType', workType);
+    
+    showToast("Committing Resolution...");
+    await postAction(fd);
+
+    if (workType === 'Major' && gasUsed && gasAmount > 0) {
+      await logGasTransaction({
+        timestamp: new Date().toLocaleString(),
+        action: 'USAGE',
+        gasType: selectedGasType,
+        amount: -Math.abs(gasAmount), 
+        tech: selectedTech,
+        refTicket: resolveTicket.assetTag
+      });
+      showToast("Gas Stocks Adjusted");
+    }
+    
+    showToast("Job Archived Successfully");
+    setResolveTicket(null);
+    setRemarks('');
+    setIsProcessing(false);
+    onRefresh();
+  };
+
+  const handleAiAsk = async () => {
+    if (!aiQuery) return;
+    setIsAiLoading(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      // Construct context for the AI
+      const context = `
+        System Information for AC Portal:
+        - Total Assets: ${assets.length}
+        - Daily Checklists Done Today: ${stats?.hvac?.inspection?.length || 0}
+        - Technicians: Bilal, Asad, Taimoor, Saboor
+        - Current Gas Stocks: ${JSON.stringify(gasStocks)}
+        - Active Complaints: ${tickets.filter(t => t.status === 'Open').length}
+      `;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Context: ${context}\n\nUser Question: ${aiQuery}`,
+        config: {
+          systemInstruction: "You are an AI Assistant for the DISRUPT FM AC Portal. Answer technician questions about checklist status, general AC maintenance, and inventory. Be professional, concise, and helpful."
+        }
+      });
+
+      setAiResponse(response.text || "I'm sorry, I couldn't process that request.");
+    } catch (error) {
+      setAiResponse("Sync Error: AI Hub Connection Failed.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handleDemandSubmit = async () => {
+    if (!selectedTech || (!demandDetails && !isGasDemand)) return;
+    setIsProcessing(true);
+    showToast("Syncing Demand...");
+    try {
+      const fd = new FormData();
+      fd.append('action', 'submit_demand');
+      fd.append('technician', selectedTech);
+      fd.append('details', demandDetails);
+      fd.append('status', 'Submitted');
+      if (isGasDemand) {
+        fd.append('gasType', demandGasType);
+        fd.append('gasAmount', String(demandGasAmount));
+      }
+      await postAction(fd);
+      showToast("Demand Logged Successfully");
+      setDemandDetails('');
+      setIsGasDemand(false);
+      setView('hub');
+    } catch (err) {
+      showToast("Sync Error: Demand Failed");
+    } finally {
+      setIsProcessing(false);
+      onRefresh();
+    }
+  };
+
+  const updateToolQty = (idx: number, delta: number) => {
+    const newTools = [...tools];
+    newTools[idx].qty = Math.max(0, newTools[idx].qty + delta);
+    setTools(newTools);
+    localStorage.setItem('fm_tools_inventory', JSON.stringify(newTools));
+  };
+
+  if (resolveTicket) {
+    return (
+      <div className="p-6 space-y-6 animate-fadeIn pb-32">
+        <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl space-y-8 slide-up">
+           <div className="flex justify-between items-center mb-4">
+              <h3 className="text-2xl font-black text-slate-900 uppercase">Job Resolution</h3>
+              <button onClick={() => setResolveTicket(null)} className="w-12 h-12 bg-slate-50 rounded-full text-slate-300"><i className="fas fa-times"></i></button>
+           </div>
+           <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between">
+              <div><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Asset Tag</p><h4 className="font-black text-slate-900">{resolveTicket.assetTag}</h4></div>
+              <div className="text-right"><p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Technician</p><h4 className="font-black text-indigo-600">{selectedTech}</h4></div>
+           </div>
+           <div className="space-y-4">
+              <p className="text-[10px] font-black text-slate-400 uppercase ml-2 tracking-widest">Repair Status</p>
+              <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                 <button onClick={() => setWorkType('Minor')} className={`flex-1 py-4 rounded-xl text-[10px] font-black transition-all ${workType === 'Minor' ? 'bg-white shadow-md text-indigo-600' : 'text-slate-400'}`}>Minor Fix</button>
+                 <button onClick={() => setWorkType('Major')} className={`flex-1 py-4 rounded-xl text-[10px] font-black transition-all ${workType === 'Major' ? 'bg-indigo-600 shadow-md text-white' : 'text-slate-400'}`}>Major Overhaul</button>
+              </div>
+           </div>
+           {workType === 'Major' && (
+              <div className="bg-rose-50/50 p-6 rounded-[2.5rem] border border-rose-100 space-y-4 slide-up">
+                 <div className="flex justify-between items-center">
+                    <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Gas Charged?</p>
+                    <button onClick={() => setGasUsed(!gasUsed)} className={`w-12 h-7 rounded-full transition-all relative ${gasUsed ? 'bg-rose-500' : 'bg-slate-300'}`}><div className={`absolute top-1.5 w-4 h-4 bg-white rounded-full transition-all ${gasUsed ? 'left-7' : 'left-1'}`}></div></button>
+                 </div>
+                 {gasUsed && (
+                    <div className="grid grid-cols-2 gap-3 animate-slideDown">
+                       <select value={selectedGasType} onChange={(e) => setSelectedGasType(e.target.value)} className="bg-white p-4 rounded-xl border border-rose-100 font-black text-[10px] outline-none">{GAS_TYPES.map(g => <option key={g.name}>{g.name}</option>)}</select>
+                       <input type="number" step="0.5" value={gasAmount} onChange={(e) => setGasAmount(parseFloat(e.target.value))} className="bg-white p-4 rounded-xl border border-rose-100 font-black text-[10px] outline-none" placeholder="KG" />
+                    </div>
+                 )}
+              </div>
+           )}
+           <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Technical findings..." className="w-full bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 outline-none font-bold text-sm h-32 focus:border-indigo-600 transition-all" />
+           <button onClick={handleResolve} disabled={isProcessing} className="w-full bg-slate-900 text-white py-8 rounded-[3rem] font-black uppercase tracking-[0.4em] text-xs shadow-2xl active:scale-95 transition-all">{isProcessing ? 'Syncing...' : 'Commit Job Resolution'}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-8 pb-32 animate-fadeIn overflow-y-auto h-full hide-scroll">
+      
+      {/* 1. TECH NAV HUB */}
+      <div className="flex bg-white p-2 rounded-full shadow-lg border border-slate-100 mb-6 gap-2 premium-card">
+         {['hub', 'materials', 'tools', 'ai'].map(v => (
+           <button key={v} onClick={() => setView(v as any)} className={`flex-1 py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${view === v ? 'bg-slate-900 text-white shadow-2xl' : 'text-slate-400 hover:bg-slate-50'}`}>{v === 'hub' ? 'Field Hub' : v === 'materials' ? 'Demands' : v === 'tools' ? 'Tools' : 'AI Help'}</button>
+         ))}
+      </div>
+
+      {view === 'hub' && (
+        <>
+          {/* 2. ATTENDANCE WIDGET */}
+          <section className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 slide-up">
+            <h3 className="font-black text-slate-900 text-[10px] uppercase tracking-[0.4em] mb-8">01 Technician Attendance</h3>
+            <div className="grid grid-cols-4 gap-4">
+              {TECHNICIANS.map(t => (
+                <button key={t} onClick={() => toggleAttendance(t)} className={`p-4 rounded-[2.2rem] border-2 text-center transition-all ${attendance[t] ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-white opacity-40 grayscale'}`}>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-md ${attendance[t] ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-400'} font-black text-xl`}>{t[0]}</div>
+                  <p className="text-[9px] font-black uppercase tracking-widest">{t}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* 3. ZONE HUB */}
+          <section className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm slide-up" style={{ animationDelay: '0.1s' }}>
+             <h3 className="font-black text-slate-900 text-[10px] uppercase tracking-[0.4em] mb-8">02 Zone Grid Operations</h3>
+             <div className="grid grid-cols-1 gap-5">
+                {['A', 'B', 'C', 'D'].map((z, i) => (
+                  <button key={z} onClick={() => onOpenChecklist(i, TECHNICIANS[i])} className="bg-slate-50/80 p-6 rounded-[2.5rem] border border-slate-100 hover:bg-white hover:shadow-2xl transition-all group flex items-center justify-between relative overflow-hidden">
+                    <div className="flex items-center gap-6 relative z-10">
+                      <div className="w-16 h-16 bg-white rounded-[1.8rem] flex items-center justify-center text-4xl font-black text-indigo-600 shadow-xl group-hover:rotate-12 transition-transform">{z}</div>
+                      <div className="text-left">
+                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Zone {z} • {TECHNICIANS[i]}</p>
+                        <div className="flex gap-4">
+                           <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Daily</span><span className={`text-xs font-black ${zoneStats[i].daily === 100 ? 'text-emerald-500' : 'text-slate-900'}`}>{zoneStats[i].daily}%</span></div>
+                           <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Monthly</span><span className="text-xs font-black text-slate-900">{zoneStats[i].monthly}%</span></div>
+                           <div className="flex flex-col"><span className="text-[8px] font-black text-slate-400 uppercase">Quarterly</span><span className="text-xs font-black text-slate-900">{zoneStats[i].quarterly}%</span></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-10 h-10 bg-slate-900 text-white rounded-full flex items-center justify-center shadow-2xl relative z-10"><i className="fas fa-chevron-right"></i></div>
+                    <div className="absolute bottom-0 left-0 h-1 bg-indigo-500/10 w-full"></div>
+                    <div className="absolute bottom-0 left-0 h-1 bg-indigo-600 transition-all duration-1000" style={{ width: `${zoneStats[i].daily}%` }}></div>
+                  </button>
+                ))}
+             </div>
+          </section>
+
+          {/* 4. LEADERBOARD */}
+          <section className="bg-slate-900 p-10 rounded-[4rem] shadow-2xl slide-up" style={{ animationDelay: '0.2s' }}>
+             <h3 className="font-black text-white/40 text-[10px] uppercase tracking-[0.4em] mb-10">03 Efficiency Leaderboard</h3>
+             <LeaderboardItem performanceLogs={stats?.performanceLogs || []} limit={4} compact={false} onRefresh={onRefresh} showToast={showToast} />
+          </section>
+
+          {/* 5. JOB ALLOCATION */}
+          <section className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm slide-up" style={{ animationDelay: '0.3s' }}>
+             <h3 className="font-black text-slate-900 text-[10px] uppercase tracking-[0.4em] mb-8">04 Live Tasking Hub</h3>
+             <div className="flex gap-4 overflow-x-auto hide-scroll pb-4">
+                {TECHNICIANS.map(t => {
+                   const count = tickets.filter(tk => tk.assignedTo === t && !['Resolved', 'Resolved by Technician'].includes(tk.status)).length;
+                   return (
+                     <button key={t} onClick={() => setSelectedTech(t)} className={`flex-shrink-0 p-6 rounded-[2.5rem] min-w-[110px] flex flex-col items-center gap-3 transition-all relative ${selectedTech === t ? 'bg-slate-900 text-white shadow-2xl scale-110' : 'bg-slate-50 text-slate-400'}`}>
+                       <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center font-black text-2xl shadow-inner ${selectedTech === t ? 'bg-white/10' : 'bg-white'}`}>{t[0]}</div>
+                       <span className="text-[10px] font-black uppercase tracking-widest">{t}</span>
+                       {count > 0 && <div className="absolute -top-1 -right-1 w-7 h-7 bg-rose-500 border-2 border-white rounded-full text-[10px] font-black flex items-center justify-center text-white animate-pulse">{count}</div>}
+                     </button>
+                   );
+                })}
+             </div>
+             {selectedTech && (
+               <div className="mt-8 space-y-4 animate-slideUp">
+                  {techTasks.length === 0 ? (
+                    <div className="text-center py-12 opacity-30"><i className="fas fa-check-double text-5xl mb-4"></i><p className="text-[10px] font-black uppercase tracking-widest">Efficiency 100%</p></div>
+                  ) : (
+                    techTasks.map((t, idx) => (
+                      <div key={idx} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex justify-between items-center group">
+                         <div className="flex-1 mr-4">
+                            <p className="text-sm font-black text-slate-800 leading-tight mb-2">{t.details}</p>
+                            <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{t.assetTag} • {t.location}</span>
+                         </div>
+                         <button onClick={() => setResolveTicket(t)} className="bg-slate-900 text-white text-[10px] font-black px-6 py-4 rounded-2xl uppercase tracking-widest shadow-xl active:scale-95 transition-all">Resolve</button>
+                      </div>
+                    ))
+                  )}
+               </div>
+             )}
+          </section>
+        </>
+      )}
+
+      {view === 'materials' && (
+        <div className="bg-white p-12 rounded-[4rem] border border-slate-100 shadow-sm animate-fadeIn slide-up">
+           <h3 className="text-3xl font-black text-slate-900 uppercase leading-none mb-10">Demand Filing</h3>
+           <div className="space-y-8">
+              <select value={selectedTech || ''} onChange={(e) => setSelectedTech(e.target.value)} className="w-full bg-slate-50 p-6 rounded-3xl border-2 border-slate-100 font-black text-sm outline-none">
+                 <option value="">Select Identity...</option>
+                 {TECHNICIANS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <div className="p-6 bg-indigo-50/50 rounded-[2.5rem] border border-indigo-100 space-y-6">
+                 <div className="flex justify-between items-center"><p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Gas Refrigerant Required?</p><button onClick={() => setIsGasDemand(!isGasDemand)} className={`w-14 h-8 rounded-full transition-all relative ${isGasDemand ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`absolute top-1.5 w-5 h-5 bg-white rounded-full transition-all ${isGasDemand ? 'left-8' : 'left-1'}`}></div></button></div>
+                 {isGasDemand && (
+                    <div className="grid grid-cols-2 gap-3 animate-slideDown">
+                       <select value={demandGasType} onChange={(e) => setDemandGasType(e.target.value)} className="bg-white p-4 rounded-2xl border border-indigo-100 font-black text-[10px] outline-none">{GAS_TYPES.map(g => <option key={g.name} value={g.name}>{g.name} ({Math.round(gasStocks[g.name] || 0)}kg Stock)</option>)}</select>
+                       <input type="number" value={demandGasAmount} onChange={(e) => setDemandGasAmount(Number(e.target.value))} className="bg-white p-4 rounded-2xl border border-indigo-100 font-black text-[10px] outline-none" placeholder="KG" />
+                    </div>
+                 )}
+              </div>
+              <textarea value={demandDetails} onChange={(e) => setDemandDetails(e.target.value)} placeholder="Specify materials, parts, or tools needed..." className="w-full bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 outline-none font-bold text-sm h-48 focus:border-indigo-500 transition-all" />
+              <button onClick={handleDemandSubmit} disabled={!selectedTech || isProcessing} className="w-full bg-slate-900 text-white py-8 rounded-[3.5rem] font-black uppercase tracking-[0.4em] text-xs shadow-2xl active:scale-95 transition-all">{isProcessing ? 'Processing Demand...' : 'Submit Material Demand'}</button>
+           </div>
+        </div>
+      )}
+
+      {view === 'tools' && (
+        <div className="bg-white p-12 rounded-[4rem] border border-slate-100 shadow-sm animate-fadeIn slide-up">
+           <div className="flex justify-between items-center mb-10" onClick={() => { const next = toolClickCount + 1; if (next >= 5) { setIsAdminTools(true); setToolClickCount(0); showToast("Admin Mode Enabled"); } else { setToolClickCount(next); } }}>
+              <div><h3 className="text-3xl font-black text-slate-900 uppercase">Toolbox Hub</h3><p className="text-[10px] font-bold text-slate-400 uppercase mt-4 tracking-widest">Inventory v8.0</p></div>
+              <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200 text-3xl shadow-inner"><i className="fas fa-toolbox"></i></div>
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+              {tools.map((t: any, i: number) => (
+                <div key={i} className="bg-slate-50/80 p-6 rounded-[2.2rem] border border-slate-100 flex flex-col items-center hover:bg-white hover:shadow-xl transition-all relative">
+                   <p className="text-[9px] font-black text-slate-400 uppercase mb-4 tracking-tighter text-center">{t.name}</p>
+                   <div className="flex items-center gap-3">
+                      {isAdminTools && <button onClick={() => updateToolQty(i, -1)} className="w-8 h-8 bg-rose-50 text-rose-500 rounded-full border border-rose-100 active:scale-90 transition-all"><i className="fas fa-minus"></i></button>}
+                      <span className="text-3xl font-black text-slate-900 leading-none">{t.qty}</span>
+                      {isAdminTools && <button onClick={() => updateToolQty(i, 1)} className="w-8 h-8 bg-emerald-50 text-emerald-500 rounded-full border border-emerald-100 active:scale-90 transition-all"><i className="fas fa-plus"></i></button>}
+                   </div>
+                </div>
+              ))}
+           </div>
+           {isAdminTools && <button onClick={() => setIsAdminTools(false)} className="w-full py-6 text-slate-400 font-black uppercase text-[10px] tracking-[0.5em] mt-10">Exit Audit Mode</button>}
+        </div>
+      )}
+
+      {view === 'ai' && (
+        <div className="bg-white p-10 rounded-[4rem] border border-slate-100 shadow-sm animate-fadeIn slide-up flex flex-col h-[70vh]">
+          <div className="flex justify-between items-center mb-10">
+            <div>
+              <h3 className="text-3xl font-black text-slate-900 uppercase">AI Help Hub</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase mt-2">Ask Gemini about System Status</p>
+            </div>
+            <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center text-3xl shadow-inner"><i className="fas fa-robot"></i></div>
+          </div>
+          <div className="flex-1 bg-slate-50 rounded-[3rem] p-8 overflow-y-auto mb-6 hide-scroll border border-slate-100">
+            {aiResponse ? (
+              <div className="animate-fadeIn">
+                <p className="text-sm font-bold text-slate-800 leading-relaxed whitespace-pre-wrap">{aiResponse}</p>
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
+                <i className="fas fa-comment-dots text-5xl mb-4"></i>
+                <p className="text-xs font-black uppercase tracking-[0.3em]">Query the Live Database</p>
+                <p className="text-[10px] mt-2 italic">Ex: How many checklists were done today?</p>
+              </div>
+            )}
+            {isAiLoading && <div className="flex items-center gap-2 text-indigo-500 font-black text-[10px] uppercase mt-4 animate-pulse"><i className="fas fa-circle-notch fa-spin"></i> Analyzing Data...</div>}
+          </div>
+          <div className="relative">
+            <input 
+              type="text" 
+              value={aiQuery} 
+              onChange={(e) => setAiQuery(e.target.value)} 
+              onKeyPress={(e) => e.key === 'Enter' && handleAiAsk()}
+              placeholder="Ask anything..." 
+              className="w-full bg-white p-6 pr-16 rounded-[2rem] border-2 border-slate-100 outline-none font-bold text-sm focus:border-indigo-500 transition-all shadow-xl" 
+            />
+            <button 
+              onClick={handleAiAsk} 
+              disabled={isAiLoading || !aiQuery} 
+              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-indigo-600 text-white rounded-xl shadow-lg active:scale-90 transition-all disabled:opacity-30"
+            >
+              <i className="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default TechView;
