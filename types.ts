@@ -27,6 +27,7 @@ export interface Ticket {
   remarks?: string;
   gasUsedKG?: number;
   gasType?: string;
+  technician?: string; // Added for checklist archive data
 }
 
 export interface GasTransaction {

@@ -2,7 +2,7 @@
 import React from 'react';
 
 const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
-  // High-quality space/launch background video
+  // Cinematic background video
   const videoUrl = "https://assets.mixkit.co/videos/preview/mixkit-space-shuttle-launch-on-a-starry-night-43542-large.mp4";
 
   return (
@@ -139,16 +139,6 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
         @keyframes trailPulse {
           0%, 100% { opacity: 0.3; transform: scale(1); }
           50% { opacity: 0.8; transform: scale(1.1); }
-        }
-
-        /* Signal Pulse (Triggered when live activity detected - simulated here with subtle constant glow) */
-        .rocket-icon.active {
-          animation: rocketGlow 0.5s ease-in-out;
-        }
-
-        @keyframes rocketGlow {
-          0%, 100% { filter: drop-shadow(0 0 12px rgba(255,255,255,0.5)); }
-          50% { filter: drop-shadow(0 0 30px rgba(255,255,255,1)); transform: scale(1.5) rotate(45deg); }
         }
       `}</style>
     </div>
