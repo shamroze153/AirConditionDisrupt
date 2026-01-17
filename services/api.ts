@@ -2,12 +2,22 @@
 import { Asset, Ticket, StatsResponse, GasTransaction } from '../types';
 import { WEB_APP_URL } from '../constants';
 
-const safeFetch = async (url: string, options?: RequestInit) => {
+const safeFetch = async (url: string, options?: RequestInit, retries = 2): Promise<any> => {
+  const fetchOptions: RequestInit = {
+    ...options,
+    redirect: 'follow',
+    cache: 'no-cache',
+  };
+
   try {
     const separator = url.includes('?') ? '&' : '?';
-    const cacheBustedUrl = `${url}${separator}t=${Date.now()}`;
-    const response = await fetch(cacheBustedUrl, options);
+    // Use a simpler cache buster or omit if causing issues. 
+    // GAS usually handles standard query params fine.
+    const cacheBustedUrl = `${url}${separator}cb=${Date.now()}`;
+    const response = await fetch(cacheBustedUrl, fetchOptions);
+    
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+    
     const contentType = response.headers.get("content-type");
     if (contentType && contentType.indexOf("application/json") !== -1) {
       const json = await response.json();
@@ -15,10 +25,18 @@ const safeFetch = async (url: string, options?: RequestInit) => {
       return json;
     } else {
       const text = await response.text();
-      if (text.includes("<html")) throw new Error("Access Denied: Re-deploy Web App as 'Anyone'.");
+      // Heuristic to detect if we got the Google login page instead of data
+      if (text.includes("<html") && text.includes("goog-logo")) {
+        throw new Error("Access Denied: Re-deploy Web App as 'Anyone'.");
+      }
       return text;
     }
   } catch (error) {
+    if (retries > 0) {
+      console.warn(`Retrying fetch (${retries} left)...`, url);
+      await new Promise(res => setTimeout(res, 1000));
+      return safeFetch(url, options, retries - 1);
+    }
     console.error("Fetch Error:", error);
     throw error;
   }
@@ -29,15 +47,24 @@ export const fetchStats = async (date: string): Promise<StatsResponse> => safeFe
 
 export const postAction = async (formData: FormData): Promise<void> => {
   try {
-    console.log(`Posting Action: ${formData.get('action')}`, Object.fromEntries(formData));
+    // Mode 'no-cors' is often required for GAS POST to avoid preflight failures
     await fetch(WEB_APP_URL, { 
       method: 'POST', 
       body: formData, 
-      mode: 'no-cors' // Google Apps Script requires no-cors for simple POST redirects
+      mode: 'no-cors' 
     });
   } catch (e) { 
     console.error("POST Error:", e); 
   }
+};
+
+export const updatePoints = async (tech: string, points: number, reason: string): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'update_points');
+  fd.append('technician', tech);
+  fd.append('points', String(points));
+  fd.append('reason', reason);
+  await postAction(fd);
 };
 
 export const logInsight = async (assetTag: string, category: string, details: string): Promise<void> => {
@@ -49,26 +76,11 @@ export const logInsight = async (assetTag: string, category: string, details: st
   await postAction(fd);
 };
 
-export const addAsset = async (asset: Partial<Asset>): Promise<void> => {
-  const fd = new FormData();
-  fd.append('action', 'add_asset');
-  Object.entries(asset).forEach(([k, v]) => fd.append(k, String(v)));
-  await postAction(fd);
-};
-
 export const updateAssetStatus = async (tag: string, status: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_asset_status');
   fd.append('tag', tag);
   fd.append('status', status);
-  await postAction(fd);
-};
-
-export const manualOverrideHealth = async (tag: string, health: number): Promise<void> => {
-  const fd = new FormData();
-  fd.append('action', 'manual_override_health');
-  fd.append('tag', tag);
-  fd.append('health', String(health));
   await postAction(fd);
 };
 
