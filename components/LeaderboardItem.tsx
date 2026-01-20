@@ -1,10 +1,11 @@
 
 import React, { useState, useMemo } from 'react';
-import { PerformanceLogEntry } from '../types.ts';
-import { TECHNICIANS, MERIT_REASONS, DEMERIT_REASONS } from '../constants.ts';
+import { PerformanceLogEntry, CategoryKey } from '../types.ts';
+import { CATEGORY_TECHS, MERIT_REASONS, DEMERIT_REASONS } from '../constants.ts';
 import { postAction } from '../services/api.ts';
 
 interface Props {
+  category: CategoryKey;
   performanceLogs: PerformanceLogEntry[];
   limit: number;
   onRefresh?: () => void;
@@ -12,43 +13,77 @@ interface Props {
   compact?: boolean;
 }
 
-const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, showToast, compact }) => {
-  const [clickCount, setClickCount] = useState(0);
+const LeaderboardItem: React.FC<Props> = ({ category, performanceLogs, limit, onRefresh, showToast, compact }) => {
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  
   const [adminType, setAdminType] = useState<'merit' | 'demerit'>('merit');
-  const [targetTech, setTargetTech] = useState(TECHNICIANS[0]);
+  
+  // FIX #2 & #3: Use dynamic tech list based on category (Technicians, Electricians, or GM)
+  const techList = useMemo(() => CATEGORY_TECHS[category] || [], [category]);
+  const [targetTech, setTargetTech] = useState(techList[0] || '');
+
   const [reason, setReason] = useState(MERIT_REASONS[0].label);
   const [points, setPoints] = useState(MERIT_REASONS[0].points);
   const [customReason, setCustomReason] = useState('');
 
   const scores = useMemo(() => {
-    return TECHNICIANS.map(tech => {
-      const techEntries = performanceLogs.filter(log => log.tech === tech);
+    // FIX #4: Filter reset logs strictly by the selected category
+    const resetLogs = performanceLogs.filter(l => 
+      l.reason === 'RESET_ALL' && 
+      String(l.category || '').toUpperCase() === category.toUpperCase()
+    );
+    
+    const lastResetDate = resetLogs.length > 0 
+      ? new Date(resetLogs[resetLogs.length - 1].Timestamp || 0).getTime() 
+      : 0;
+
+    return techList.map(tech => {
+      const techEntries = performanceLogs.filter(log => {
+        const logDate = new Date(log.Timestamp || 0).getTime();
+        // FIX #3: Strict category filtering for performance data stream
+        const catMatch = String(log.category || '').toUpperCase() === category.toUpperCase();
+        return log.tech === tech && logDate >= lastResetDate && log.reason !== 'RESET_ALL' && catMatch;
+      });
       const merit = techEntries.filter(l => l.points > 0).reduce((acc, curr) => acc + curr.points, 0);
       const demerit = Math.abs(techEntries.filter(l => l.points < 0).reduce((acc, curr) => acc + curr.points, 0));
       const total = merit - demerit;
       return { name: tech, merit, demerit, total };
     }).sort((a, b) => b.total - a.total);
-  }, [performanceLogs]);
+  }, [performanceLogs, techList, category]);
 
-  const handleAdminTrigger = (tech?: string) => {
+  const handleAdminAccess = (tech?: string) => {
     if (tech) setTargetTech(tech);
-    const newCount = clickCount + 1;
-    if (newCount >= 5) { 
-      setShowAdmin(true); 
-      setClickCount(0); 
-    } else { 
-      setClickCount(newCount); 
+    if (isAdminUnlocked) {
+      setShowAdmin(true);
+    } else {
+      setShowPinModal(true);
+    }
+  };
+
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput === '5566') {
+      setIsAdminUnlocked(true);
+      setShowPinModal(false);
+      setShowAdmin(true);
+      setPinInput('');
+      showToast?.("ADMIN ACCESS GRANTED");
+    } else {
+      showToast?.("ACCESS DENIED: Invalid PIN");
+      setPinInput('');
     }
   };
 
   const handleApplyPoints = async () => {
     const finalReason = reason === 'Others' ? customReason : reason;
-    // Force correct sign based on adminType
     const finalPoints = adminType === 'demerit' ? -Math.abs(points) : Math.abs(points);
     
     const fd = new FormData();
     fd.append('action', 'update_points');
+    fd.append('category', category.toUpperCase()); // Fix category tagging
     fd.append('technician', targetTech);
     fd.append('points', String(finalPoints));
     fd.append('reason', finalReason);
@@ -71,25 +106,80 @@ const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, s
 
   return (
     <div className={`space-y-2.5 ${compact ? 'max-h-48 overflow-hidden' : ''}`}>
+      <div className="flex justify-between items-center px-1 mb-2">
+         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic">Performance Data Stream ({category.toUpperCase()})</span>
+         <button 
+           onClick={() => isAdminUnlocked ? setIsAdminUnlocked(false) : setShowPinModal(true)} 
+           className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${isAdminUnlocked ? 'bg-emerald-100 text-emerald-600 shadow-lg' : 'bg-slate-100 text-slate-300 hover:text-indigo-600 shadow-sm'}`}
+           title={isAdminUnlocked ? "Lock Excellence Hub" : "Unlock Admin Controls"}
+         >
+            <i className={`fas fa-${isAdminUnlocked ? 'lock-open' : 'lock'} text-[10px]`}></i>
+         </button>
+      </div>
+
       {scores.slice(0, Math.max(limit, 4)).map((s, i) => {
         const medals = ["🥇", "🥈", "🥉", "🏅"];
         const rankColors = ["text-yellow-400", "text-slate-300", "text-amber-600", "text-indigo-300"];
         return (
-          <div key={i} onClick={() => handleAdminTrigger(s.name)} className={`p-4 rounded-xl flex items-center justify-between border transition-all cursor-pointer group active:scale-[0.98] ${compact ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-50 hover:border-indigo-100 shadow-sm'}`}>
+          <div 
+            key={i} 
+            onClick={() => handleAdminAccess(s.name)} 
+            className={`p-4 rounded-xl flex items-center justify-between border transition-all cursor-pointer group active:scale-[0.98] ${compact ? 'bg-slate-50 border-slate-100' : 'bg-white border-slate-50 hover:border-indigo-100 shadow-sm'}`}
+          >
             <div className="flex items-center gap-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shadow-inner group-hover:scale-105 transition-transform bg-slate-50 ${rankColors[i] || 'text-slate-300'}`}>{medals[i] || "🏅"}</div>
               <div>
                 <h4 className="font-black uppercase text-[11px] tracking-widest leading-none text-slate-900 italic">{s.name}</h4>
-                <div className="flex items-center gap-2.5 mt-2"><span className="text-[8px] font-black text-emerald-500 uppercase">+{s.merit}</span><span className="text-[8px] font-black text-rose-500 uppercase">-{s.demerit}</span></div>
+                <div className="flex items-center gap-2.5 mt-2">
+                  <span className="text-[8px] font-black text-emerald-500 uppercase">+{s.merit} Merit</span>
+                  <span className="text-[8px] font-black text-rose-500 uppercase">-{s.demerit} Demerit</span>
+                </div>
               </div>
             </div>
-            <div className="text-right">
-              <span className="text-2xl font-black leading-none block text-slate-900 tracking-tighter italic">{s.total}</span>
-              <span className="text-[8px] font-black uppercase tracking-widest mt-1 block opacity-30 text-slate-400">UNITS</span>
+            <div className="text-right flex items-center gap-3">
+              <div>
+                <span className="text-2xl font-black leading-none block text-slate-900 tracking-tighter italic">{s.total}</span>
+                <span className="text-[8px] font-black uppercase tracking-widest mt-1 block opacity-30 text-slate-400">SCORE</span>
+              </div>
+              {isAdminUnlocked && (
+                <div className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center animate-pulse shadow-sm">
+                  <i className="fas fa-plus-circle text-xs"></i>
+                </div>
+              )}
             </div>
           </div>
         );
       })}
+
+      {/* PIN AUTH MODAL (Unified) */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
+          <div className="bg-white w-full max-w-xs rounded-[2.5rem] p-10 shadow-3xl border border-white/5">
+             <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-inner">
+                   <i className="fas fa-shield-alt text-3xl"></i>
+                </div>
+                <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Admin Login</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-3 tracking-widest italic">Enter 4-Digit Hub Code</p>
+             </div>
+             <form onSubmit={handlePinSubmit} className="space-y-8">
+                <input 
+                  type="password" 
+                  autoFocus
+                  maxLength={4}
+                  value={pinInput}
+                  onChange={(e) => setPinInput(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] py-5 text-center text-3xl font-black tracking-[0.6em] focus:border-indigo-600 outline-none transition-all shadow-inner"
+                  placeholder="••••"
+                />
+                <div className="flex gap-4">
+                  <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-4 text-[10px] font-black uppercase text-slate-400 italic">Exit</button>
+                  <button type="submit" className="flex-1 bg-slate-950 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest italic shadow-2xl">Confirm</button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
 
       {showAdmin && (
         <div className="fixed inset-0 bg-slate-950/98 z-[300] flex items-center justify-center p-6 backdrop-blur-xl animate-fadeIn">
@@ -97,13 +187,12 @@ const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, s
               <div className="flex justify-between items-center mb-8">
                 <div>
                   <h3 className="text-2xl font-black text-slate-900 leading-none italic uppercase tracking-tighter">Merit Control</h3>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">Authorization Required</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">Authorized for: {targetTech}</p>
                 </div>
                 <button onClick={() => setShowAdmin(false)} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-300 hover:text-rose-500 active:scale-90 transition-colors"><i className="fas fa-times text-xl"></i></button>
               </div>
 
               <div className="space-y-6">
-                 {/* ADMIN TYPE TOGGLE */}
                  <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200">
                     <button onClick={() => { setAdminType('merit'); handleReasonChange(MERIT_REASONS[0].label); }} className={`flex-1 py-2.5 rounded-lg text-[9px] font-black transition-all uppercase tracking-widest ${adminType === 'merit' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-400'}`}>ALLOCATE MERIT</button>
                     <button onClick={() => { setAdminType('demerit'); handleReasonChange(DEMERIT_REASONS[0].label); }} className={`flex-1 py-2.5 rounded-lg text-[9px] font-black transition-all uppercase tracking-widest ${adminType === 'demerit' ? 'bg-white shadow-md text-rose-600' : 'text-slate-400'}`}>LOG DEMERIT</button>
@@ -112,7 +201,9 @@ const LeaderboardItem: React.FC<Props> = ({ performanceLogs, limit, onRefresh, s
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Subject</label>
-                      <select value={targetTech} onChange={e => setTargetTech(e.target.value)} className="w-full bg-transparent font-black text-[11px] outline-none uppercase italic">{TECHNICIANS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                      <select value={targetTech} onChange={e => setTargetTech(e.target.value)} className="w-full bg-transparent font-black text-[11px] outline-none uppercase italic">
+                        {techList.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
                     </div>
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                       <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Policy Trigger</label>

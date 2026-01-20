@@ -11,6 +11,7 @@ export interface Asset {
   status: string;
   year?: number;
   healthScore?: number;
+  category?: string;
 }
 
 export interface Ticket {
@@ -28,6 +29,28 @@ export interface Ticket {
   gasUsedKG?: number;
   gasType?: string;
   technician?: string;
+  complaintType?: 'Proactive' | 'Reactive';
+}
+
+export interface Seat {
+  no: number;
+  location: string;
+  campusCode: string;
+  floorTag: string;
+  roomTag: string;
+  stationTag: string;
+  empName: string;
+  empCode: string;
+  empType: string;
+  roomCode: string;
+  roomCodeDashboard: string;
+  seatCode: string;
+  bu: string;
+  department: string;
+  category: string;
+  status: string;
+  snapshotDate: string;
+  finalDept: string;
 }
 
 export interface GasTransaction {
@@ -37,17 +60,30 @@ export interface GasTransaction {
   amount: number;
   tech: string;
   refTicket?: string;
+  category?: string;
 }
 
 export interface PerformanceLogEntry {
+  Timestamp?: string;
   tech: string;
   points: number;
   reason?: string;
+  category?: string;
+}
+
+export interface MaterialDemand {
+  timestamp: string;
+  technician: string;
+  details: string;
+  status: string;
+  gasType?: string;
+  gasAmount?: string;
+  category?: string;
 }
 
 export interface HvacStats {
-  inspection: string[];
-  filters: string[];
+  daily: string[];
+  monthly: string[];
   quarterly: string[];
   gasStocks: Record<string, number>;
 }
@@ -56,16 +92,42 @@ export interface StatsResponse {
   complaints: Ticket[];
   performanceLogs: PerformanceLogEntry[];
   hvac: HvacStats;
+  demands: MaterialDemand[];
+  acknowledgedInsights?: {tag: string, type: string}[];
+}
+
+export interface GlobalStatsResponse {
+  allTickets: Ticket[];
+  allPerformanceLogs: PerformanceLogEntry[];
+  proactiveCount?: number;
+  seatingData?: Seat[];
 }
 
 export enum AppTab {
   DASHBOARD = 'view-dashboard',
   OPS = 'view-ops',
-  TECH = 'view-tech'
+  TECH = 'view-tech',
+  GLOBAL = 'view-global'
+}
+
+export type CategoryKey = 'ac' | 'electrical' | 'handyman' | 'fleet' | 'valet' | 'reception' | 'office-boy' | 'janitorial' | 'seating';
+
+export interface FMCategory {
+  id: CategoryKey;
+  name: string;
+  group: 'Hard FM' | 'Soft FM';
+  icon: string;
+  color: string;
 }
 
 export enum ChecklistType {
   DAILY = 'Daily',
   MONTHLY = 'Monthly',
   QUARTERLY = 'Quarterly'
+}
+
+export interface Tool {
+  category: string;
+  name: string;
+  qty: number;
 }
