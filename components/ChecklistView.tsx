@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types.ts';
 import { CAMPUS_ASSETS, CATEGORY_TECHS, ELECTRICAL_MODULE_DATA, ELECTRICAL_TECHNICIANS, TECHNICIANS } from '../constants.ts';
@@ -26,8 +25,12 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   // Photo Logic
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
 
   const currentTaskItems = useMemo(() => {
@@ -79,7 +82,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   }, [category, assets, zoneIdx, selectedCampus]);
 
   const groupedTasks = useMemo(() => {
-    const groups: Record<string, typeof currentTaskItems> = {};
+    const groups: Record<string, any[]> = {};
     currentTaskItems.forEach(item => {
       if (!groups[item.group]) groups[item.group] = [];
       groups[item.group].push(item);
@@ -102,6 +105,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsCameraActive(true);
+        setCapturedPhoto(null);
       }
     } catch (err) {
       showToast("Camera Access Denied");
@@ -112,6 +116,18 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
       setIsCameraActive(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCapturedPhoto(reader.result as string);
+        stopCamera();
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -131,6 +147,8 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     if (category === 'ac' && activeFrequency !== ChecklistType.DAILY) {
       setCurrentTask(itemTag);
       setCapturedPhoto(null);
+      setUploadSuccess(false);
+      setIsUploading(false);
       setShowPhotoModal(true);
       startCamera();
       return;
@@ -151,6 +169,24 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     }
   };
 
+  const handleTransmitWithStatus = async () => {
+    if (!currentTask || !capturedPhoto) return;
+    setIsUploading(true);
+    try {
+      await finalizeEntry(currentTask, "OK", `${activeFrequency} Evidence Logged`, capturedPhoto);
+      setUploadSuccess(true);
+      setTimeout(() => {
+        setShowPhotoModal(false);
+        setIsUploading(false);
+        setUploadSuccess(false);
+        setCapturedPhoto(null);
+      }, 1500);
+    } catch (e) {
+      showToast("Sync Error");
+      setIsUploading(false);
+    }
+  };
+
   const finalizeEntry = async (itemTag: string, status: string, remarks: string, photo: string) => {
     const frequency = category === 'ac' ? activeFrequency : ChecklistType.DAILY;
     const taskItem = currentTaskItems.find(it => it.tag === itemTag);
@@ -167,7 +203,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     fd.append('remarks', remarks);
     if (photo) fd.append('photo', photo); 
     
-    showToast(`Syncing ${category.toUpperCase()} Protocol...`);
+    if (!isUploading) showToast(`Syncing ${category.toUpperCase()} Protocol...`);
     await postAction(fd);
 
     if (status === "OK") {
@@ -273,7 +309,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                   <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">{group} Registry</h4>
                </div>
-               {tasks.map((item, i) => {
+               {(tasks as any[]).map((item: any, i: number) => {
                  const isDone = currentDoneList.includes(item.tag);
                  return (
                    <div key={i} className={`bg-white p-5 rounded-[2rem] border-2 transition-all group ${isDone ? 'border-emerald-100 bg-emerald-50/20' : 'border-white shadow-sm hover:border-slate-100'}`}>
@@ -322,25 +358,70 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl overflow-hidden flex flex-col items-center">
               <div className="w-full mb-6">
                  <h3 className="text-xl font-black text-slate-950 uppercase italic tracking-tighter leading-none mb-2 text-center">Evidence Protocol</h3>
-                 <p className="text-[8px] font-black text-rose-500 uppercase tracking-widest italic text-center">Mandatory for {activeFrequency} verification</p>
+                 <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest italic text-center">Required for {activeFrequency} verification</p>
               </div>
               
               <div className="w-full aspect-square bg-slate-100 rounded-[2rem] overflow-hidden mb-6 border-2 border-slate-100 relative group">
                 {capturedPhoto ? (
-                  <img src={capturedPhoto} className="w-full h-full object-cover animate-fadeIn" alt="Captured" />
+                  <div className="relative h-full w-full">
+                    <img src={capturedPhoto} className="w-full h-full object-cover animate-fadeIn" alt="Captured" />
+                    {isUploading && (
+                      <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center backdrop-blur-sm transition-all">
+                        {uploadSuccess ? (
+                          <div className="flex flex-col items-center animate-bounce">
+                            <i className="fas fa-check-circle text-emerald-400 text-5xl mb-3"></i>
+                            <p className="text-white text-[10px] font-black uppercase tracking-widest italic">Uploaded</p>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center">
+                            <i className="fas fa-circle-notch animate-spin text-teal-400 text-5xl mb-4"></i>
+                            <p className="text-white text-[10px] font-black uppercase tracking-widest italic">Uploading...</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover grayscale brightness-110" />
-                )}
-                {!capturedPhoto && isCameraActive && (
-                  <div className="absolute inset-0 border-4 border-indigo-500/20 pointer-events-none"></div>
+                  <>
+                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover grayscale brightness-110" />
+                    {!capturedPhoto && isCameraActive && (
+                      <div className="absolute inset-0 border-4 border-indigo-500/20 pointer-events-none"></div>
+                    )}
+                    <div className="absolute bottom-4 left-0 w-full flex justify-center gap-3">
+                       <button onClick={() => fileInputRef.current?.click()} className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest italic shadow-xl">
+                          <i className="fas fa-folder-open mr-2"></i>Gallery
+                       </button>
+                    </div>
+                  </>
                 )}
               </div>
+
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                accept="image/*" 
+                className="hidden" 
+                onChange={handleFileChange} 
+              />
 
               <div className="grid grid-cols-2 gap-4 w-full">
                 {capturedPhoto ? (
                   <>
-                    <button onClick={() => { setCapturedPhoto(null); startCamera(); }} className="py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest italic">Retake</button>
-                    <button onClick={() => { if(currentTask) finalizeEntry(currentTask, "OK", `${activeFrequency} Evidence Logged`, capturedPhoto); setShowPhotoModal(false); stopCamera(); }} className="py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest italic shadow-xl">Transmit</button>
+                    <button 
+                      disabled={isUploading}
+                      onClick={() => { setCapturedPhoto(null); startCamera(); }} 
+                      className="py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest italic disabled:opacity-50"
+                    >
+                      Retake
+                    </button>
+                    <button 
+                      disabled={isUploading}
+                      onClick={handleTransmitWithStatus} 
+                      className="py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest italic shadow-xl flex items-center justify-center gap-3 disabled:bg-slate-400"
+                    >
+                       <i className="fas fa-cloud-upload-alt"></i>
+                       <span>Transmit</span>
+                    </button>
                   </>
                 ) : (
                   <>

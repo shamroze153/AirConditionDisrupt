@@ -1,7 +1,7 @@
 
 import { FMCategory } from './types';
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwkWwHfX1exqq9rIm__Khyk9qPc4rHldHBpR4mcXYm1K8xGwlyekPuSdwKs1drDOX0EFQ/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzyhYVN42zKR9_wqEYuWRQVV2rcQuA0rl6jMNgIiz4kITaMGujVUrsOu9MY9_Nt38APEg/exec";
 
 export const TECHNICIANS = ['Bilal', 'Asad', 'Taimoor', 'Saboor'];
 export const ELECTRICAL_TECHNICIANS = ['Ibraheem', 'Naveed Ali', 'Haris', 'Owais'];

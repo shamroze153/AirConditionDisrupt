@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, StatsResponse, FMCategory } from '../types.ts';
 import GasStatus from './GasStatus.tsx';
@@ -30,7 +29,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const [searchQuery, setSearchQuery] = useState('');
   
   const [shufflingTag, setShufflingTag] = useState<string | null>(null);
-  const [checklistFilter, setChecklistFilter] = useState<'all' | 'complete' | 'missed'>('all');
   const [resetClicks, setResetClicks] = useState(0);
   const [proofImage, setProofImage] = useState<string | null>(null);
 
@@ -73,17 +71,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
 
     return { lifeAlerts, recurring };
   }, [assets, tickets, stats]);
-
-  const ledgerSummary = useMemo(() => {
-    if (historyType !== 'complaint' || isFetchingHistory) return { resolved: 0, pending: 0, wip: 0, total: 0 };
-    const data = historyData || [];
-    // Complaint status is typically at index 6 in raw rows
-    const resolved = data.filter(d => (String(d[6] || d.status || '').toLowerCase().includes('resolved'))).length;
-    const pending = data.filter(d => (String(d[6] || d.status || '').toLowerCase().includes('open'))).length;
-    const total = data.length;
-    const wip = total - resolved - pending;
-    return { resolved, pending, wip, total };
-  }, [historyData, historyType, isFetchingHistory]);
 
   const archiveSummary = useMemo(() => {
     if (historyType !== 'complaint') return {};
@@ -190,7 +177,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
 
   const handleExportCSV = () => {
     if (!historyData.length) return;
-    let headers = historyType === 'complaint' ? "Timestamp,Category,Location,Asset,Details,Assigned,Status,Remarks\n" : "Timestamp,Technician,Asset,Task,Status,Remarks\n";
+    let headers = historyType === 'complaint' ? "Timestamp,Category,Location,Asset,Details,Assigned,Status,Remarks\n" : "Timestamp,Technician,Asset,Task,Status,Remarks,Proof\n";
     let rows = historyData.map(e => Object.values(e).join(',')).join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -255,11 +242,11 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       </section>
 
       {/* KPI GRID */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-slate-900 text-white p-4 rounded-xl shadow-lg flex flex-col justify-between h-28 relative overflow-hidden group border border-white/5">
           <div className={`absolute top-0 right-0 w-20 h-20 bg-${category.color}-500/10 blur-[30px] group-hover:bg-${category.color}-500/20 transition-all`}></div>
-          <div><p className={`text-[8px] font-black uppercase tracking-[0.4em] text-${category.color}-400 mb-1`}>Total Assets Installed</p><h2 className="text-3xl font-extrabold tracking-tighter italic">{assetGroups.installedTotal}</h2></div>
-          <div className="flex items-center gap-2"><div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></div><p className="text-[8px] font-bold uppercase text-white/40 tracking-widest italic">Live Sync Active</p></div>
+          <div><p className={`text-[8px] font-black uppercase tracking-[0.4em] text-${category.color}-400 mb-1`}>Total Assets</p><h2 className="text-3xl font-extrabold tracking-tighter italic">{assetGroups.installedTotal}</h2></div>
+          <div className="flex items-center gap-2"><div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></div><p className="text-[8px] font-bold uppercase text-white/40 tracking-widest italic">Live Sync</p></div>
         </div>
         {[ 
           {label: 'Active', list: assetGroups.active, color: 'emerald', icon: 'shield-check'}, 
@@ -358,14 +345,17 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                       </button>
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-2 bg-emerald-50/50 rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-2 animate-slideDown">
-                          {day.entries.map((e: any, idx: number) => (
-                            <div key={idx} className="bg-white p-2 rounded-md border border-emerald-100 flex flex-col gap-2">
-                              <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
-                              {e[6] && e[6].length > 10 && (
-                                <button onClick={() => setProofImage(e[6])} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded">View Proof</button>
-                              )}
-                            </div>
-                          ))}
+                          {day.entries.map((e: any, idx: number) => {
+                            const proofUrl = e[6] || '';
+                            return (
+                              <div key={idx} className="bg-white p-2 rounded-md border border-emerald-100 flex flex-col gap-2">
+                                <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
+                                {proofUrl.length > 5 && (
+                                  <button onClick={() => setProofImage(proofUrl)} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -385,6 +375,19 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                                  <div key={a.tag} className="bg-white p-2 rounded-md border border-rose-100 text-center"><p className="text-[8px] font-black text-rose-400">{a.tag}</p></div>
                                ))}
                              </div>
+                           </div>
+                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {day.entries.map((e: any, idx: number) => {
+                                const proofUrl = e[6] || '';
+                                return (
+                                  <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 flex flex-col gap-2">
+                                    <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
+                                    {proofUrl.length > 5 && (
+                                      <button onClick={() => setProofImage(proofUrl)} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>
+                                    )}
+                                  </div>
+                                );
+                              })}
                            </div>
                         </div>
                       )}

@@ -44,83 +44,55 @@ const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) =
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // KPI Metrics
+  // KPI Metrics (SLA removed from UI display as requested)
   const kpiMetrics = useMemo(() => {
     const total = tickets.length;
     const resolved = tickets.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status)).length;
     const pending = total - resolved;
-    
-    // SLA Compliance: Resolution within 3 days
-    const slaMet = tickets.filter(t => {
-      const raised = parseHubDate(t.date);
-      if (!raised || !t.status.includes('Resolved')) return false;
-      const resMatch = t.resolvedBy?.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
-      const completionDate = resMatch ? new Date(resMatch[0]) : new Date();
-      return (completionDate.getTime() - raised.getTime()) / (1000 * 3600 * 24) <= 3;
-    }).length;
-
-    const compliance = total > 0 ? Math.round((slaMet / total) * 100) : 100;
     const uptime = total > 0 ? parseFloat(((resolved / total) * 100).toFixed(1)) : 100;
 
-    return { total, resolved, pending, compliance, uptime };
+    return { total, resolved, pending, uptime };
   }, [tickets]);
 
-  // Chart 1: Work Order Aging (Avg Days to Resolve)
-  const agingChartData = useMemo(() => {
+  // Yearly Charts Logic
+  const yearlyPerformance = useMemo(() => {
     return YEAR_MONTHS.map(m => {
-      const monthlyResolved = tickets.filter(t => 
-        parseHubDate(t.date)?.getMonth() === m.monthIdx && 
-        ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status)
-      );
+      const monthly = tickets.filter(t => parseHubDate(t.date)?.getMonth() === m.monthIdx);
+      const proactive = monthly.filter(t => t.complaintType === 'Proactive').length;
+      const reactive = monthly.filter(t => t.complaintType === 'Reactive' || !t.complaintType).length;
       
-      const totalDays = monthlyResolved.reduce((acc, t) => {
+      const resolved = monthly.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status));
+      const totalDays = resolved.reduce((acc, t) => {
         const raised = parseHubDate(t.date);
         const resMatch = t.resolvedBy?.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
         const completionDate = resMatch ? new Date(resMatch[0]) : new Date();
         return acc + (completionDate.getTime() - raised!.getTime()) / (1000 * 3600 * 24);
       }, 0);
 
-      const avg = monthlyResolved.length > 0 ? parseFloat((totalDays / monthlyResolved.length).toFixed(1)) : 0;
-      return { month: m.key, avg };
-    });
-  }, [tickets, YEAR_MONTHS]);
-
-  // Chart 2: % Overdue Work Orders (> 7 Days)
-  const overdueChartData = useMemo(() => {
-    return YEAR_MONTHS.map(m => {
-      const monthly = tickets.filter(t => parseHubDate(t.date)?.getMonth() === m.monthIdx);
       const overdue = monthly.filter(t => {
         const raised = parseHubDate(t.date);
         if (!raised) return false;
         const resMatch = t.resolvedBy?.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
         const completionDate = resMatch ? new Date(resMatch[0]) : new Date();
-        const diff = (completionDate.getTime() - raised.getTime()) / (1000 * 3600 * 24);
-        return diff > 7;
+        return (completionDate.getTime() - raised.getTime()) / (1000 * 3600 * 24) > 7;
       }).length;
-      return { month: m.key, count: overdue };
+
+      return {
+        month: m.key,
+        proactive,
+        reactive,
+        avgResolution: resolved.length > 0 ? parseFloat((totalDays / resolved.length).toFixed(1)) : 0,
+        overdueCount: overdue
+      };
     });
   }, [tickets, YEAR_MONTHS]);
 
-  // Chart 3: Maintenance Mix (Proactive vs Reactive)
-  const maintenanceMix = useMemo(() => {
-    const proactive = tickets.filter(t => t.complaintType === 'Proactive').length;
-    const reactive = tickets.filter(t => t.complaintType === 'Reactive' || !t.complaintType).length;
-    const total = proactive + reactive || 1;
-    return {
-      proactive: Math.round((proactive / total) * 100),
-      reactive: Math.round((reactive / total) * 100),
-      pCount: proactive,
-      rCount: reactive
-    };
-  }, [tickets]);
-
-  // Chart 4: Seating Pulse (Donut)
   const seatingStats = useMemo(() => {
     const total = seating.length || 1;
     const occupied = seating.filter(s => s.status === 'Occupied').length;
     const vacant = seating.filter(s => s.status === 'Vacant').length;
     const temp = seating.filter(s => s.status === 'Temp Occup' || s.status?.toLowerCase().includes('progress')).length;
-    const ooo = total - occupied - vacant - temp;
+    const ooo = seating.filter(s => s.status === 'OOO' || s.status?.toLowerCase().includes('maintenance')).length;
 
     const getPct = (val: number) => Math.round((val / total) * 100);
     return {
@@ -130,240 +102,282 @@ const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) =
       temp: getPct(temp),
       ooo: getPct(ooo),
       oCount: occupied,
-      vCount: vacant
+      vCount: vacant,
+      tCount: temp,
+      mCount: ooo
     };
   }, [seating]);
 
-  // Global Leaderboard
   const leaderboard = useMemo(() => {
     const allTechs = [...TECHNICIANS, ...ELECTRICAL_TECHNICIANS, ...GM_TECHNICIANS];
-    const performance = allTechs.map(tech => {
+    return allTechs.map(tech => {
       const techLogs = logs.filter(l => l.tech === tech && l.reason !== 'RESET_ALL');
       const merit = techLogs.filter(l => l.points > 0).reduce((a, b) => a + b.points, 0);
       const demerit = Math.abs(techLogs.filter(l => l.points < 0).reduce((a, b) => a + b.points, 0));
       return { tech, score: merit - demerit, merit, demerit };
-    });
-    return performance.sort((a, b) => b.score - a.score).slice(0, 5);
+    }).sort((a, b) => b.score - a.score).slice(0, 5);
   }, [logs]);
 
   return (
-    <div className="p-4 lg:p-10 space-y-10 animate-fadeIn max-w-[1600px] mx-auto pb-32">
-      {/* 1. KPI STRIP */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="p-4 md:p-10 space-y-12 md:space-y-16 animate-fadeIn max-w-[1600px] mx-auto pb-32">
+      
+      {/* 1. TOP KPI STRIP - SLA COMPLIANCE REMOVED */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-8">
         {[
-          { label: 'Total Deployments', val: kpiMetrics.total, icon: 'rocket', color: 'indigo', sub: 'Year to Date' },
-          { label: 'SLA Compliance', val: `${kpiMetrics.compliance}%`, icon: 'shield-check', color: 'emerald', sub: 'Resolution < 3d' },
-          { label: 'Pending Response', val: kpiMetrics.pending, icon: 'clock', color: 'amber', sub: 'Active Queue' },
-          { label: 'Global Uptime', val: `${kpiMetrics.uptime}%`, icon: 'globe', color: 'slate', sub: 'System Health' }
+          { label: 'Total Deployments', val: kpiMetrics.total, icon: 'rocket', color: 'indigo' },
+          { label: 'Pending Response', val: kpiMetrics.pending, icon: 'clock', color: 'amber' },
+          { label: 'Global Uptime', val: `${kpiMetrics.uptime}%`, icon: 'globe', color: 'emerald' }
         ].map((kpi, i) => (
-          <div key={i} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm group hover:shadow-xl transition-all relative overflow-hidden">
-            <div className={`absolute top-0 right-0 w-24 h-24 bg-${kpi.color}-500/5 blur-[40px] opacity-0 group-hover:opacity-100 transition-opacity`}></div>
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] italic mb-1">{kpi.label}</p>
-                <p className="text-[7px] font-bold text-slate-300 uppercase tracking-widest italic">{kpi.sub}</p>
-              </div>
-              <div className={`w-12 h-12 bg-${kpi.color}-50 text-${kpi.color}-600 rounded-2xl flex items-center justify-center text-xl group-hover:bg-${kpi.color}-600 group-hover:text-white transition-all shadow-inner`}>
-                <i className={`fas fa-${kpi.icon}`}></i>
+          <div key={i} className="bg-white p-6 md:p-10 rounded-[2rem] border border-slate-100 shadow-sm group hover:shadow-xl transition-all relative overflow-hidden">
+            <div className="flex justify-between items-start mb-4 md:mb-8">
+              <p className="text-[9px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest italic leading-none">{kpi.label}</p>
+              <div className={`w-10 h-10 md:w-14 md:h-14 bg-${kpi.color}-50 text-${kpi.color}-600 rounded-xl md:rounded-2xl flex items-center justify-center text-sm md:text-2xl group-hover:bg-${kpi.color}-600 group-hover:text-white transition-all shadow-inner`}>
+                <i className={`fas fa-${kpi.icon}`}>`</i>
               </div>
             </div>
-            <h3 className="text-5xl font-black italic tracking-tighter text-slate-900 leading-none">{kpi.val}</h3>
+            <h3 className="text-3xl md:text-6xl font-black italic tracking-tighter text-slate-900 leading-none">{kpi.val}</h3>
           </div>
         ))}
       </div>
 
-      {/* 2. MAIN CHART GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* CHART 1: AGING PROFILE */}
-        <div className="lg:col-span-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl relative overflow-hidden group">
-          <div className="flex justify-between items-center mb-12">
-            <div>
-              <h4 className="text-[12px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-2">Work Order Aging Analysis</h4>
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Average Days to Resolution Stream</p>
+      {/* 2. OPERATION & MAINTENANCE SECTION */}
+      <section className="space-y-8">
+        <div className="flex items-center gap-6">
+           <div className="h-px flex-1 bg-slate-200"></div>
+           <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-slate-900">Operation &amp; Maintenance</h2>
+           <div className="h-px flex-1 bg-slate-200"></div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+          {/* CHART 1: STRATEGY MIX */}
+          <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
+            <div className="mb-8">
+              <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">Maintenance Strategy Mix</h4>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Preventive vs Reactive Ratio</p>
             </div>
-            <div className="flex items-center gap-4">
-               <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-                 <span className="text-[8px] font-black uppercase text-slate-400">Latency (Days)</span>
-               </div>
-            </div>
-          </div>
-          
-          <div className="flex items-end justify-between h-64 gap-4 px-2">
-            {agingChartData.map((d, i) => {
-              const maxAvg = Math.max(...agingChartData.map(x => x.avg), 1);
-              const height = (d.avg / maxAvg) * 100;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-4 group/bar">
-                  <div className="relative w-full flex justify-center items-end h-full">
-                    <div className="absolute inset-0 bg-slate-50/50 rounded-t-xl opacity-0 group-hover/bar:opacity-100 transition-opacity"></div>
-                    <div className={`w-full bg-slate-100 rounded-t-xl transition-all group-hover/bar:bg-indigo-600 group-hover/bar:shadow-[0_0_20px_rgba(79,70,229,0.3)] ${d.avg > 0 ? 'bg-indigo-100' : ''}`} style={{ height: `${Math.max(height, 5)}%` }}></div>
-                    {d.avg > 0 && (
-                      <div className="absolute -top-10 bg-slate-950 text-white text-[9px] font-black px-3 py-1.5 rounded-lg opacity-0 group-hover/bar:opacity-100 transition-all scale-50 group-hover/bar:scale-100 origin-bottom shadow-2xl">
-                        {d.avg}d
-                      </div>
-                    )}
+            
+            <div className="flex-1 flex items-end justify-between gap-1.5 md:gap-3 px-1">
+              {yearlyPerformance.map((d, i) => {
+                const total = (d.proactive + d.reactive) || 1;
+                const maxInYear = Math.max(...yearlyPerformance.map(x => x.proactive + x.reactive), 1);
+                const totalHeight = ((d.proactive + d.reactive) / maxInYear) * 100;
+                const proPct = (d.proactive / total) * 100;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-3 group/bar h-full justify-end">
+                    <div className="relative w-full flex flex-col-reverse items-end justify-start h-full gap-0.5 rounded-t-md overflow-hidden" style={{ height: `${Math.max(totalHeight, 8)}%` }}>
+                      <div className="w-full bg-indigo-500 transition-all group-hover/bar:brightness-110" style={{ height: `${proPct}%` }} title={`Proactive: ${d.proactive}`}></div>
+                      <div className="w-full bg-slate-200 transition-all group-hover/bar:brightness-110" style={{ height: `${100 - proPct}%` }} title={`Reactive: ${d.reactive}`}></div>
+                    </div>
+                    <span className="text-[7px] md:text-[9px] font-black text-slate-300 uppercase italic group-hover/bar:text-slate-950">{d.month}</span>
                   </div>
-                  <span className="text-[9px] font-black text-slate-300 uppercase italic group-hover/bar:text-slate-950 transition-colors">{d.month}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* CHART 2: MAINTENANCE MIX */}
-        <div className="lg:col-span-4 bg-slate-950 p-10 rounded-[3rem] shadow-2xl border border-white/5 relative overflow-hidden">
-           <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-[100px]"></div>
-           <h4 className="text-[12px] font-black text-emerald-400 uppercase italic tracking-[0.2em] mb-12">Maintenance Strategy Mix</h4>
-           
-           <div className="space-y-12 relative z-10">
-              <div className="space-y-4">
-                 <div className="flex justify-between items-baseline">
-                    <span className="text-[10px] font-black text-white uppercase italic tracking-widest">Proactive Checklist</span>
-                    <span className="text-3xl font-black text-emerald-500 italic tracking-tighter">{maintenanceMix.proactive}%</span>
-                 </div>
-                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 transition-all duration-1000 shadow-[0_0_15px_rgba(16,185,129,0.5)]" style={{ width: `${maintenanceMix.proactive}%` }}></div>
-                 </div>
-                 <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{maintenanceMix.pCount} Tasks Executed</p>
-              </div>
-
-              <div className="space-y-4">
-                 <div className="flex justify-between items-baseline">
-                    <span className="text-[10px] font-black text-white uppercase italic tracking-widest">Reactive Incidents</span>
-                    <span className="text-3xl font-black text-rose-600 italic tracking-tighter">{maintenanceMix.reactive}%</span>
-                 </div>
-                 <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                    <div className="h-full bg-rose-600 transition-all duration-1000 shadow-[0_0_15px_rgba(225,29,72,0.5)]" style={{ width: `${maintenanceMix.reactive}%` }}></div>
-                 </div>
-                 <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{maintenanceMix.rCount} Faults Logged</p>
-              </div>
-           </div>
-
-           <div className="mt-20 pt-8 border-t border-white/5 text-center">
-              <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.5em] italic">Network Health Index: Optimal</p>
-           </div>
-        </div>
-
-        {/* CHART 3: OVERDUE UNITS */}
-        <div className="lg:col-span-5 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl relative overflow-hidden group">
-          <div className="flex justify-between items-center mb-10">
-            <div>
-              <h4 className="text-[12px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-2">
-                % Overdue Work Orders (&gt; 7 Days)
-              </h4>
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Critical SLA Breach Analysis</p>
+                );
+              })}
             </div>
-            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center shadow-inner">
-               <i className="fas fa-exclamation-circle text-xl animate-pulse"></i>
+            <div className="mt-6 flex justify-center gap-4 border-t border-slate-50 pt-4">
+              <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                 <span className="text-[8px] font-black text-slate-400 uppercase italic">Proactive</span>
+              </div>
+              <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 bg-slate-200 rounded-full"></div>
+                 <span className="text-[8px] font-black text-slate-400 uppercase italic">Reactive</span>
+              </div>
             </div>
           </div>
-          
-          <div className="flex items-end justify-between h-56 gap-2">
-             {overdueChartData.map((d, i) => {
-               const max = Math.max(...overdueChartData.map(x => x.count), 1);
-               const height = (d.count / max) * 100;
-               return (
-                 <div key={i} className="flex-1 flex flex-col items-center gap-4 group/over">
+
+          {/* CHART 2: WORK ORDER AGING */}
+          <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
+            <div className="mb-8">
+              <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">Work Order Aging</h4>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Monthly Avg Resolution (Days)</p>
+            </div>
+            
+            <div className="flex-1 flex items-end justify-between gap-1.5 md:gap-3 px-1">
+              {yearlyPerformance.map((d, i) => {
+                const max = Math.max(...yearlyPerformance.map(x => x.avgResolution), 5);
+                const height = (d.avgResolution / max) * 100;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-3 group/over h-full justify-end">
                     <div className="relative w-full flex justify-center items-end h-full">
-                       <div className={`w-full rounded-t-lg transition-all duration-700 ${d.count > 0 ? 'bg-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-slate-50'}`} style={{ height: `${Math.max(height, 5)}%` }}></div>
-                       {d.count > 0 && (
-                         <div className="absolute -top-10 bg-slate-950 text-white text-[9px] font-black px-3 py-1.5 rounded-lg opacity-0 group-hover/over:opacity-100 transition-all shadow-2xl">
-                            {d.count} Units
+                       <div className="w-full bg-emerald-100 rounded-t-lg transition-all group-hover/over:bg-emerald-600 group-hover/over:shadow-lg" style={{ height: `${Math.max(height, 8)}%` }}></div>
+                       {d.avgResolution > 0 && (
+                         <div className="absolute -top-8 bg-slate-950 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xl opacity-0 group-hover/over:opacity-100 transition-all">
+                            {d.avgResolution}d
                          </div>
                        )}
                     </div>
-                    <span className="text-[8px] font-black text-slate-300 uppercase italic group-hover/over:text-slate-950">{d.month}</span>
-                 </div>
-               );
-             })}
-          </div>
-        </div>
-
-        {/* CHART 4: SEATING PULSE */}
-        <div className="lg:col-span-3 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col items-center justify-center relative overflow-hidden">
-          <h4 className="text-[10px] font-black text-slate-950 uppercase italic tracking-[0.3em] absolute top-10 text-center w-full">Seating Pulse</h4>
-          
-          <div className="relative w-48 h-48 flex items-center justify-center mt-6">
-            <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
-               <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="12" />
-               <circle 
-                 cx="50" cy="50" r="40" 
-                 fill="transparent" 
-                 stroke="#f97316" 
-                 strokeWidth="12" 
-                 strokeDasharray={`${seatingStats.occupied * 2.51} 251.2`}
-                 strokeLinecap="round"
-                 className="transition-all duration-1000 ease-out"
-               />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-               <span className="text-4xl font-black italic text-slate-950 tracking-tighter leading-none">{seatingStats.oCount}</span>
-               <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Active Seats</span>
+                    <span className="text-[7px] md:text-[9px] font-black text-slate-300 uppercase italic group-hover/over:text-slate-950">{d.month}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-12 w-full">
-             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <p className="text-[7px] font-black text-teal-600 uppercase mb-1">Vacant</p>
-                <p className="text-xl font-black italic text-slate-900 tracking-tighter">{seatingStats.vacant}%</p>
-             </div>
-             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <p className="text-[7px] font-black text-indigo-600 uppercase mb-1">In Progress</p>
-                <p className="text-xl font-black italic text-slate-900 tracking-tighter">{seatingStats.temp}%</p>
-             </div>
+          {/* CHART 3: % OVERDUE WORK ORDERS */}
+          <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
+            <div className="mb-8">
+              <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">% Overdue Work Orders</h4>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Critical SLA Breach Count (&gt; 7 Days)</p>
+            </div>
+            
+            <div className="flex-1 flex items-end justify-between gap-1.5 md:gap-3 px-1">
+              {yearlyPerformance.map((d, i) => {
+                const max = Math.max(...yearlyPerformance.map(x => x.overdueCount), 1);
+                const height = (d.overdueCount / max) * 100;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-3 group/over h-full justify-end">
+                    <div className="relative w-full flex justify-center items-end h-full">
+                       <div className={`w-full rounded-t-lg transition-all ${d.overdueCount > 0 ? 'bg-rose-500 shadow-lg' : 'bg-slate-50'}`} style={{ height: `${Math.max(height, 8)}%` }}></div>
+                       {d.overdueCount > 0 && (
+                         <div className="absolute -top-8 bg-slate-950 text-white text-[8px] font-black px-1.5 py-0.5 rounded opacity-0 group-hover/over:opacity-100 transition-all">
+                            {d.overdueCount}
+                         </div>
+                       )}
+                    </div>
+                    <span className="text-[7px] md:text-[9px] font-black text-slate-300 uppercase italic group-hover/over:text-slate-950">{d.month}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
+      </section>
 
-        {/* 3. GLOBAL EXCELLENCE LEADERBOARD */}
-        <div className="lg:col-span-4 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl relative overflow-hidden">
-           <div className="flex justify-between items-center mb-10">
+      {/* 3. SEATING & OCCUPANCY SECTION */}
+      <section className="space-y-8">
+        <div className="flex items-center gap-6">
+           <div className="h-px flex-1 bg-slate-200"></div>
+           <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-slate-900">Seating &amp; Occupancy</h2>
+           <div className="h-px flex-1 bg-slate-200"></div>
+        </div>
+
+        <div className="bg-slate-950 p-8 md:p-16 rounded-[3rem] shadow-2xl border border-white/5 relative overflow-hidden">
+           <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-teal-500/10 blur-[120px]"></div>
+           <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-indigo-500/5 blur-[120px]"></div>
+           
+           <div className="relative z-10 flex flex-col lg:flex-row items-center justify-around gap-12">
+             <div className="text-center lg:text-left space-y-6">
+                <div>
+                   <h4 className="text-2xl md:text-4xl font-black text-white uppercase italic tracking-tighter leading-none mb-4">Seating Pulse Analytics</h4>
+                   <p className="text-[10px] md:text-xs font-black text-teal-400/60 uppercase tracking-[0.4em] italic">Full Facility Capacity Graphical View</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 max-w-md">
+                   {[
+                     { label: 'Occupied', val: seatingStats.oCount, pct: seatingStats.occupied, color: 'bg-teal-500' },
+                     { label: 'Vacant', val: seatingStats.vCount, pct: seatingStats.vacant, color: 'bg-emerald-500' },
+                     { label: 'Temp Progress', val: seatingStats.tCount, pct: seatingStats.temp, color: 'bg-purple-500' },
+                     { label: 'Maintenance', val: seatingStats.mCount, pct: seatingStats.ooo, color: 'bg-slate-500' }
+                   ].map(item => (
+                     <div key={item.label} className="bg-white/5 p-4 md:p-6 rounded-2xl border border-white/5 backdrop-blur-md">
+                        <div className="flex items-center gap-3 mb-2">
+                           <div className={`w-2 h-2 rounded-full ${item.color}`}></div>
+                           <span className="text-[9px] font-black text-white/40 uppercase italic tracking-widest">{item.label}</span>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                           <span className="text-2xl md:text-3xl font-black text-white italic tracking-tighter leading-none">{item.val}</span>
+                           <span className="text-[10px] font-bold text-white/20 uppercase">{item.pct}%</span>
+                        </div>
+                     </div>
+                   ))}
+                </div>
+             </div>
+
+             <div className="relative w-64 h-64 md:w-[450px] md:h-[450px] flex items-center justify-center">
+               <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 filter drop-shadow-[0_0_20px_rgba(20,184,166,0.2)]">
+                 <circle cx="50" cy="50" r="42" fill="transparent" stroke="#0f172a" strokeWidth="12" />
+                 <circle 
+                   cx="50" cy="50" r="42" 
+                   fill="transparent" 
+                   stroke="#14b8a6" 
+                   strokeWidth="12" 
+                   strokeDasharray={`${seatingStats.occupied * 2.63} 263.8`}
+                   strokeLinecap="round"
+                   className="transition-all duration-1000 ease-out"
+                 />
+                 <circle 
+                   cx="50" cy="50" r="42" 
+                   fill="transparent" 
+                   stroke="#a855f7" 
+                   strokeWidth="12" 
+                   strokeDasharray={`${seatingStats.temp * 2.63} 263.8`}
+                   strokeDashoffset={`-${seatingStats.occupied * 2.63}`}
+                   strokeLinecap="round"
+                   className="transition-all duration-1000 ease-out"
+                 />
+               </svg>
+               <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <span className="text-4xl md:text-8xl font-black italic text-white tracking-tighter leading-none">{seatingStats.total}</span>
+                  <span className="text-[9px] md:text-[11px] font-black text-teal-400 uppercase tracking-[0.5em] mt-2 italic">Global Registry</span>
+               </div>
+             </div>
+           </div>
+        </div>
+      </section>
+
+      {/* 4. LEADERBOARD - POSITIONED AT BOTTOM */}
+      <section className="space-y-8">
+        <div className="flex items-center gap-6">
+           <div className="h-px flex-1 bg-slate-200"></div>
+           <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-slate-900">Technician Excellence</h2>
+           <div className="h-px flex-1 bg-slate-200"></div>
+        </div>
+
+        <div className="bg-white p-6 md:p-12 rounded-[3rem] border border-slate-100 shadow-xl relative overflow-hidden">
+           <div className="flex justify-between items-center mb-12">
               <div>
-                <h4 className="text-[12px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-2">Global Excellence</h4>
-                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Cross-Departmental Ranking</p>
+                <h4 className="text-lg md:text-xl font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">Global Efficiency Ranking</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Performance Analytics Cycle Active</p>
               </div>
-              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shadow-inner">
-                <i className="fas fa-crown text-sm"></i>
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner">
+                <i className="fas fa-award text-xl md:text-3xl animate-bounce"></i>
               </div>
            </div>
 
-           <div className="space-y-4">
+           <div className="space-y-4 md:space-y-6">
               {leaderboard.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-300 transition-all group">
-                   <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center font-black text-sm group-hover:bg-indigo-600 group-hover:text-white transition-all italic">
+                <div key={idx} className="flex items-center justify-between p-5 md:p-8 bg-slate-50/50 rounded-3xl border border-slate-100 group hover:bg-white hover:shadow-xl transition-all">
+                   <div className="flex items-center gap-6 md:gap-10">
+                      <div className="w-12 h-12 md:w-16 md:h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center font-black text-lg md:text-2xl italic group-hover:bg-indigo-600 group-hover:text-white transition-all">
                          {idx + 1}
                       </div>
                       <div>
-                         <p className="text-[11px] font-black text-slate-900 uppercase italic tracking-widest">{item.tech}</p>
-                         <div className="flex gap-2 mt-1">
-                            <span className="text-[7px] font-bold text-emerald-500">+{item.merit}M</span>
-                            <span className="text-[7px] font-bold text-rose-400">-{item.demerit}D</span>
+                         <p className="text-sm md:text-xl font-black text-slate-900 uppercase italic tracking-widest">{item.tech}</p>
+                         <div className="flex gap-4 mt-1.5 md:mt-3">
+                            <div className="flex items-center gap-2">
+                               <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                               <span className="text-[9px] md:text-[11px] font-black text-emerald-600 uppercase italic">+{item.merit} Merit</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                               <div className="w-1.5 h-1.5 bg-rose-400 rounded-full"></div>
+                               <span className="text-[9px] md:text-[11px] font-black text-rose-500 uppercase italic">-{item.demerit} Demerit</span>
+                            </div>
                          </div>
                       </div>
                    </div>
                    <div className="text-right">
-                      <p className="text-2xl font-black text-slate-950 italic tracking-tighter leading-none">{item.score}</p>
-                      <p className="text-[7px] font-black text-slate-300 uppercase tracking-widest mt-1">Net Merit</p>
+                      <p className="text-3xl md:text-5xl font-black text-slate-950 italic tracking-tighter leading-none">{item.score}</p>
+                      <p className="text-[9px] md:text-[11px] font-black text-slate-300 uppercase tracking-widest mt-2 leading-none">Net Score</p>
                    </div>
                 </div>
               ))}
            </div>
         </div>
-      </div>
+      </section>
 
       {/* FOOTER STRIP */}
-      <div className="pt-12 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6 opacity-30">
-         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.6em] italic text-center md:text-left">
-           Command View Authorized Entry • Cloud Synchronizer v12.0 • Disrupt FM Portal
+      <div className="pt-12 border-t border-slate-100 flex flex-col items-center gap-6 opacity-30">
+         <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-[0.5em] italic text-center leading-relaxed">
+           Authorized Command Environment &bull; Disrupt Facilities Suite &bull; Yearly Analytics v18.0
          </p>
-         <div className="flex gap-8 items-center">
-            <span className="text-[8px] font-black uppercase italic tracking-widest">Latency: 0.12ms</span>
-            <span className="text-[8px] font-black uppercase italic tracking-widest">Buffer: Stable</span>
-            <div className="flex gap-2">
-               <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-               <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse delay-75"></div>
-               <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse delay-150"></div>
+         <div className="flex gap-12 items-center">
+            <div className="flex items-center gap-3">
+               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]"></div>
+               <span className="text-[8px] md:text-[10px] font-black uppercase italic tracking-widest">Network Secure</span>
+            </div>
+            <div className="flex items-center gap-3">
+               <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse delay-75 shadow-[0_0_10px_#6366f1]"></div>
+               <span className="text-[8px] md:text-[10px] font-black uppercase italic tracking-widest">Data Synced</span>
             </div>
          </div>
       </div>

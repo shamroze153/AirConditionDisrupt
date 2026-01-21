@@ -1,4 +1,3 @@
-
 import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool } from '../types';
 import { WEB_APP_URL } from '../constants';
 
@@ -102,7 +101,7 @@ export const deleteTool = async (category: CategoryKey, name: string): Promise<v
 export const updatePoints = async (category: CategoryKey, tech: string, points: number, reason: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_points');
-  fd.append('category', category);
+  fd.append('category', category.toUpperCase());
   fd.append('technician', tech);
   fd.append('points', String(points));
   fd.append('reason', reason);
@@ -112,14 +111,14 @@ export const updatePoints = async (category: CategoryKey, tech: string, points: 
 export const resetLeaderboard = async (category: CategoryKey): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'reset_leaderboard');
-  fd.append('category', category);
+  fd.append('category', category.toUpperCase());
   await postAction(fd);
 };
 
 export const logInsight = async (category: CategoryKey, assetTag: string, insightCategory: string, details: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'log_insight');
-  fd.append('category', category);
+  fd.append('category', category.toUpperCase());
   fd.append('assetTag', assetTag);
   fd.append('insightCategory', insightCategory);
   fd.append('details', details);
@@ -129,7 +128,7 @@ export const logInsight = async (category: CategoryKey, assetTag: string, insigh
 export const updateAssetStatus = async (category: CategoryKey, tag: string, status: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_asset_status');
-  fd.append('category', category);
+  fd.append('category', category.toUpperCase());
   fd.append('tag', tag);
   fd.append('status', status);
   await postAction(fd);
@@ -155,18 +154,13 @@ export const getReport = async (category: CategoryKey, type: 'checklist' | 'comp
 export const submitDemand = async (category: CategoryKey, tech: string, details: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'submit_demand');
-  fd.append('category', category);
+  fd.append('category', category.toUpperCase());
   fd.append('technician', tech);
   fd.append('details', details);
   fd.append('status', 'Submitted');
   await postAction(fd);
 };
 
-// --- Missing Seating API implementation ---
-
-/**
- * Adds a new seat occupancy record.
- */
 export const addOccupancy = async (seat: Seat): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'add_occupancy');
@@ -174,9 +168,6 @@ export const addOccupancy = async (seat: Seat): Promise<void> => {
   await postAction(fd);
 };
 
-/**
- * Updates an existing seat occupancy record.
- */
 export const updateOccupancy = async (seat: Seat): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_occupancy');
@@ -184,12 +175,19 @@ export const updateOccupancy = async (seat: Seat): Promise<void> => {
   await postAction(fd);
 };
 
-/**
- * Deletes a seat occupancy record by its identifier.
- */
 export const deleteOccupancy = async (no: number | string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'delete_occupancy');
   fd.append('no', String(no));
+  await postAction(fd);
+};
+
+export const deductSLAPenalty = async (category: CategoryKey, tech: string, ticketId: string): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'update_points');
+  fd.append('category', category.toUpperCase());
+  fd.append('technician', tech);
+  fd.append('points', '-25');
+  fd.append('reason', `SLA BREACH: Ticket #${ticketId} open >7 days`);
   await postAction(fd);
 };

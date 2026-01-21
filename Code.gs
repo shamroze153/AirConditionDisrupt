@@ -1,4 +1,3 @@
-
 /**
  * DISRUPT_FM_ULTIMATE Backend v17.0 - Full Action Integration & Drive Support
  */
@@ -152,6 +151,46 @@ function doPost(e) {
 
   try {
     switch(action) {
+      case 'reset_leaderboard':
+        const logSheet = ss.getSheetByName('Performance_Log');
+        const allLogs = logSheet.getDataRange().getValues();
+        const header = allLogs.shift();
+        
+        // Month Archive
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const currentMonth = months[new Date().getMonth()];
+        const archiveName = `Archive_${currentMonth}_${new Date().getFullYear()}`;
+        
+        let archiveSheet = ss.getSheetByName(archiveName);
+        if (!archiveSheet) {
+          archiveSheet = ss.insertSheet(archiveName);
+          archiveSheet.appendRow(header);
+        }
+        
+        const logsToKeep = [];
+        const logsToArchive = [];
+        
+        allLogs.forEach(row => {
+          if (String(row[4] || '').toUpperCase() === category) {
+            logsToArchive.push(row);
+          } else {
+            logsToKeep.push(row);
+          }
+        });
+        
+        if (logsToArchive.length > 0) {
+          archiveSheet.getRange(archiveSheet.getLastRow() + 1, 1, logsToArchive.length, header.length).setValues(logsToArchive);
+        }
+        
+        logSheet.clear();
+        logSheet.appendRow(header);
+        if (logsToKeep.length > 0) {
+          logSheet.getRange(2, 1, logsToKeep.length, header.length).setValues(logsToKeep);
+        }
+        
+        logSheet.appendRow([new Date(), 'SYSTEM', 0, 'RESET_ALL', category]);
+        break;
+
       case 'complain':
         ss.getSheetByName('Work_Orders').appendRow([
           new Date(), 
@@ -176,21 +215,24 @@ function doPost(e) {
         break;
 
       case 'checklist_entry':
-        let photoUrl = params.photo || '';
-        if (photoUrl && photoUrl.startsWith('data:image')) {
+        let photoCellData = params.photo || '';
+        if (photoCellData && photoCellData.startsWith('data:image')) {
           try {
             var folder;
             var folders = DriveApp.getFoldersByName("DISRUPT_FM_UPLOADS");
             if (folders.hasNext()) folder = folders.next();
             else folder = DriveApp.createFolder("DISRUPT_FM_UPLOADS");
             var name = params.assetTag + "_" + Date.now() + ".jpg";
-            var bytes = Utilities.base64Decode(photoUrl.split(',')[1]);
+            var bytes = Utilities.base64Decode(photoCellData.split(',')[1]);
             var file = folder.createFile(name, bytes, MimeType.JPEG);
             file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-            photoUrl = file.getUrl();
-          } catch(e) { photoUrl = "Drive_Error: " + e.toString(); }
+            
+            // Generate a direct view URL and wrap in IMAGE formula for the sheet preview
+            const directUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
+            photoCellData = '=HYPERLINK("' + file.getUrl() + '", IMAGE("' + directUrl + '", 1))';
+          } catch(e) { photoCellData = "Drive_Error: " + e.toString(); }
         }
-        ss.getSheetByName('Checklist_Audit').appendRow([new Date(), params.technician, params.assetTag, params.task, params.status, params.remarks, photoUrl, category, params.frequency || 'Daily']);
+        ss.getSheetByName('Checklist_Audit').appendRow([new Date(), params.technician, params.assetTag, params.task, params.status, params.remarks, photoCellData, category, params.frequency || 'Daily']);
         break;
 
       case 'log_gas_tx':
@@ -199,10 +241,6 @@ function doPost(e) {
 
       case 'update_points':
         ss.getSheetByName('Performance_Log').appendRow([new Date(), params.technician, Number(params.points), params.reason, category]);
-        break;
-
-      case 'reset_leaderboard':
-        ss.getSheetByName('Performance_Log').appendRow([new Date(), 'SYSTEM', 0, 'RESET_ALL', category]);
         break;
 
       case 'log_insight':
