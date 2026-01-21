@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { GlobalStatsResponse, Ticket, Seat, PerformanceLogEntry } from '../types.ts';
+import React, { useMemo } from 'react';
+import { GlobalStatsResponse } from '../types.ts';
 import { TECHNICIANS, ELECTRICAL_TECHNICIANS, GM_TECHNICIANS } from '../constants.ts';
 
 interface Props {
@@ -8,7 +8,7 @@ interface Props {
   showToast: (msg: string) => void;
 }
 
-const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) => {
+const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
   const CURRENT_YEAR = new Date().getFullYear();
   const DATA_START_DATE = new Date(`${CURRENT_YEAR}-01-01T00:00:00`);
 
@@ -44,7 +44,7 @@ const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) =
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // KPI Metrics (SLA removed from UI display as requested)
+  // KPI Metrics
   const kpiMetrics = useMemo(() => {
     const total = tickets.length;
     const resolved = tickets.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status)).length;
@@ -121,21 +121,22 @@ const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) =
   return (
     <div className="p-4 md:p-10 space-y-12 md:space-y-16 animate-fadeIn max-w-[1600px] mx-auto pb-32">
       
-      {/* 1. TOP KPI STRIP - SLA COMPLIANCE REMOVED */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-8">
+      {/* 1. TOP KPI STRIP */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
         {[
-          { label: 'Total Deployments', val: kpiMetrics.total, icon: 'rocket', color: 'indigo' },
-          { label: 'Pending Response', val: kpiMetrics.pending, icon: 'clock', color: 'amber' },
-          { label: 'Global Uptime', val: `${kpiMetrics.uptime}%`, icon: 'globe', color: 'emerald' }
+          { label: 'Complaints Launched', val: kpiMetrics.total, icon: 'file-invoice', color: 'indigo' },
+          { label: 'Complaints Resolved', val: kpiMetrics.resolved, icon: 'check-double', color: 'emerald' },
+          { label: 'Work In Progress', val: kpiMetrics.pending, icon: 'clock', color: 'amber' },
+          { label: 'Active Facilities Uptime', val: `${kpiMetrics.uptime}%`, icon: 'shield-alt', color: 'teal' }
         ].map((kpi, i) => (
           <div key={i} className="bg-white p-6 md:p-10 rounded-[2rem] border border-slate-100 shadow-sm group hover:shadow-xl transition-all relative overflow-hidden">
             <div className="flex justify-between items-start mb-4 md:mb-8">
               <p className="text-[9px] md:text-[11px] font-black text-slate-400 uppercase tracking-widest italic leading-none">{kpi.label}</p>
               <div className={`w-10 h-10 md:w-14 md:h-14 bg-${kpi.color}-50 text-${kpi.color}-600 rounded-xl md:rounded-2xl flex items-center justify-center text-sm md:text-2xl group-hover:bg-${kpi.color}-600 group-hover:text-white transition-all shadow-inner`}>
-                <i className={`fas fa-${kpi.icon}`}>`</i>
+                <i className={`fas fa-${kpi.icon}`}></i>
               </div>
             </div>
-            <h3 className="text-3xl md:text-6xl font-black italic tracking-tighter text-slate-900 leading-none">{kpi.val}</h3>
+            <h3 className="text-3xl md:text-5xl font-black italic tracking-tighter text-slate-900 leading-none">{kpi.val}</h3>
           </div>
         ))}
       </div>
@@ -229,7 +230,7 @@ const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) =
                     <div className="relative w-full flex justify-center items-end h-full">
                        <div className={`w-full rounded-t-lg transition-all ${d.overdueCount > 0 ? 'bg-rose-500 shadow-lg' : 'bg-slate-50'}`} style={{ height: `${Math.max(height, 8)}%` }}></div>
                        {d.overdueCount > 0 && (
-                         <div className="absolute -top-8 bg-slate-950 text-white text-[8px] font-black px-1.5 py-0.5 rounded opacity-0 group-hover/over:opacity-100 transition-all">
+                         <div className="absolute -top-8 bg-slate-950 text-white text-[7px] font-black px-1.5 py-0.5 rounded opacity-0 group-hover/over:opacity-100 transition-all">
                             {d.overdueCount}
                          </div>
                        )}

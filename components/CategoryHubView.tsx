@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { FM_CATEGORIES, CAMPUS_ROOMS, TECHNICIANS, ELECTRICAL_TECHNICIANS } from '../constants';
 import { FMCategory, Ticket, Asset } from '../types';
@@ -37,6 +36,13 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
   const hardFM = FM_CATEGORIES.filter(c => c.group === 'Hard FM');
   const softFM = FM_CATEGORIES.filter(c => c.group === 'Soft FM');
+
+  // Logic for live uptime calculation
+  const liveUptime = useMemo(() => {
+    if (!tickets || tickets.length === 0) return "100";
+    const resolved = tickets.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status)).length;
+    return ((resolved / tickets.length) * 100).toFixed(1);
+  }, [tickets]);
 
   // Logic for cascading selects in Electrical/GM (Location-based)
   const campuses = Object.keys(CAMPUS_ROOMS);
@@ -218,7 +224,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                </div>
                <div className="bg-white/5 border border-white/10 px-8 py-5 rounded-[1.5rem] backdrop-blur-md flex flex-col items-center">
                  <span className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1 italic">Active Uptime</span>
-                 <span className="text-3xl font-black text-white italic tracking-tighter">99.9%</span>
+                 <span className="text-3xl font-black text-white italic tracking-tighter">{liveUptime}%</span>
                </div>
              </div>
           </button>
