@@ -191,9 +191,18 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     const now = new Date();
     let start = new Date(now);
     let end = new Date(now);
-    if (type === 'today') { } 
-    else if (type === 'tomorrow') { start.setDate(now.getDate() + 1); end.setDate(now.getDate() + 1); } 
-    else if (type === 'week') { start.setDate(now.getDate() - 7); }
+    
+    if (type === 'today') {
+      // already set to now/now
+    } else if (type === 'yesterday') {
+      start.setDate(now.getDate() - 1);
+      end.setDate(now.getDate() - 1);
+    } else if (type === 'prev-week') {
+      // Previous week: start 14 days ago, end 7 days ago
+      start.setDate(now.getDate() - 14);
+      end.setDate(now.getDate() - 7);
+    }
+    
     setDateRange({ start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] });
   };
 
@@ -295,8 +304,12 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
               
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100 gap-1">
-                  {['today', 'tomorrow', 'week'].map(f => (
-                    <button key={f} onClick={() => setFilter(f)} className="px-2 py-1 text-[7px] font-black uppercase tracking-tighter text-slate-400 hover:text-indigo-600 transition-colors">{f}</button>
+                  {[
+                    {id: 'today', label: 'Today'}, 
+                    {id: 'yesterday', label: 'Yesterday'}, 
+                    {id: 'prev-week', label: 'Previous Week'}
+                  ].map(f => (
+                    <button key={f.id} onClick={() => setFilter(f.id)} className="px-2 py-1 text-[7px] font-black uppercase tracking-tighter text-slate-400 hover:text-indigo-600 transition-colors">{f.label}</button>
                   ))}
                 </div>
                 <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-100">

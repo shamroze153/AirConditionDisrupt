@@ -1,5 +1,5 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v17.0 - Full Action Integration & Drive Support
+ * DISRUPT_FM_ULTIMATE Backend v19.0 - Base64 Direct Storage & Multi-Tech Accountability
  */
 
 const SPREADSHEET_ID = "1yS28yOFwRWHoSvMmIm6bEisBFHTrQLiFZc38e6pnpv4";
@@ -38,7 +38,7 @@ function initializeSheets(ss) {
 
 function doGet(e) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  initializeSheets(ss); // Ensure backend is ready
+  initializeSheets(ss);
   
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').toLowerCase().trim();
@@ -87,8 +87,8 @@ function doGet(e) {
           const rFreq = String(r[8] || 'Daily');
           const rTag = r[2];
           if (rCat !== category) return;
-          const isElectrical = (rCat === 'ELECTRICAL');
-          if (rFreq === 'Daily' && (isElectrical || rDate.toDateString() === todayStr)) dailyComp.push(rTag);
+          
+          if (rFreq === 'Daily' && rDate.toDateString() === todayStr) dailyComp.push(rTag);
           if (rFreq === 'Monthly' && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) monthlyComp.push(rTag);
           if (rFreq === 'Quarterly' && Math.floor(rDate.getMonth() / 3) === thisQuarter && rDate.getFullYear() === thisYear) quarterlyComp.push(rTag);
         });
@@ -147,7 +147,7 @@ function doGet(e) {
 
 function doPost(e) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  initializeSheets(ss); // Ensure backend is ready
+  initializeSheets(ss);
   
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').toLowerCase().trim();
@@ -155,44 +155,36 @@ function doPost(e) {
 
   try {
     switch(action) {
-      case 'reset_leaderboard':
-        const logSheet = ss.getSheetByName('Performance_Log');
-        const allLogs = logSheet.getDataRange().getValues();
-        const header = allLogs.shift();
-        
-        // Month Archive
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const currentMonth = months[new Date().getMonth()];
-        const archiveName = `Archive_${currentMonth}_${new Date().getFullYear()}`;
-        
-        let archiveSheet = ss.getSheetByName(archiveName);
-        if (!archiveSheet) {
-          archiveSheet = ss.insertSheet(archiveName);
-          archiveSheet.appendRow(header);
+      case 'checklist_entry':
+        // Saving Base64 directly into cell as requested for preview support
+        let photoData = params.photo || '';
+        ss.getSheetByName('Checklist_Audit').appendRow([
+          new Date(), 
+          params.technician, 
+          params.assetTag, 
+          params.task, 
+          params.status, 
+          params.remarks, 
+          photoData, 
+          category, 
+          params.frequency || 'Daily'
+        ]);
+        break;
+
+      case 'resolve_ticket':
+        const woSheet = ss.getSheetByName('Work_Orders');
+        const rowIndex = Number(params.rowIndex);
+        woSheet.getRange(rowIndex, 7, 1, 6).setValues([[
+          params.status, 
+          params.resolvedBy, 
+          params.workType || '', 
+          params.remarks || '', 
+          params.gasUsed || 0, 
+          params.gasType || ''
+        ]]);
+        if (params.gasUsed && Number(params.gasUsed) > 0) {
+          ss.getSheetByName('Gas_Ledger').appendRow([new Date(), 'USAGE', params.gasType, -Math.abs(Number(params.gasUsed)), params.resolvedBy.split(' • ')[0], params.assetTag, category]);
         }
-        
-        const logsToKeep = [];
-        const logsToArchive = [];
-        
-        allLogs.forEach(row => {
-          if (String(row[4] || '').toUpperCase() === category) {
-            logsToArchive.push(row);
-          } else {
-            logsToKeep.push(row);
-          }
-        });
-        
-        if (logsToArchive.length > 0) {
-          archiveSheet.getRange(archiveSheet.getLastRow() + 1, 1, logsToArchive.length, header.length).setValues(logsToArchive);
-        }
-        
-        logSheet.clear();
-        logSheet.appendRow(header);
-        if (logsToKeep.length > 0) {
-          logSheet.getRange(2, 1, logsToKeep.length, header.length).setValues(logsToKeep);
-        }
-        
-        logSheet.appendRow([new Date(), 'SYSTEM', 0, 'RESET_ALL', category]);
         break;
 
       case 'complain':
@@ -209,97 +201,8 @@ function doPost(e) {
         ]);
         break;
 
-      case 'resolve_ticket':
-        const woSheet = ss.getSheetByName('Work_Orders');
-        const rowIndex = Number(params.rowIndex);
-        woSheet.getRange(rowIndex, 7, 1, 6).setValues([[params.status, params.resolvedBy, params.workType || '', params.remarks || '', params.gasUsed || 0, params.gasType || '']]);
-        if (params.gasUsed && Number(params.gasUsed) > 0) {
-          ss.getSheetByName('Gas_Ledger').appendRow([new Date(), 'USAGE', params.gasType, -Math.abs(Number(params.gasUsed)), params.resolvedBy.split(' • ')[0], params.assetTag, category]);
-        }
-        break;
-
-      case 'checklist_entry':
-        let photoCellData = params.photo || '';
-        if (photoCellData && photoCellData.startsWith('data:image')) {
-          try {
-            var folder;
-            var folders = DriveApp.getFoldersByName("DISRUPT_FM_UPLOADS");
-            if (folders.hasNext()) folder = folders.next();
-            else folder = DriveApp.createFolder("DISRUPT_FM_UPLOADS");
-            var name = params.assetTag + "_" + Date.now() + ".jpg";
-            var bytes = Utilities.base64Decode(photoCellData.split(',')[1]);
-            var file = folder.createFile(name, bytes, MimeType.JPEG);
-            file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-            
-            // Generate a direct view URL and wrap in IMAGE formula for the sheet preview
-            const directUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
-            photoCellData = '=HYPERLINK("' + file.getUrl() + '", IMAGE("' + directUrl + '", 1))';
-          } catch(e) { photoCellData = "Drive_Error: " + e.toString(); }
-        }
-        ss.getSheetByName('Checklist_Audit').appendRow([new Date(), params.technician, params.assetTag, params.task, params.status, params.remarks, photoCellData, category, params.frequency || 'Daily']);
-        break;
-
-      case 'log_gas_tx':
-        ss.getSheetByName('Gas_Ledger').appendRow([new Date(), params.type, params.gasType, params.type === 'REFILL' ? Math.abs(Number(params.amount)) : -Math.abs(Number(params.amount)), params.tech, params.refTicket || 'HUB_SYNC', category]);
-        break;
-
       case 'update_points':
         ss.getSheetByName('Performance_Log').appendRow([new Date(), params.technician, Number(params.points), params.reason, category]);
-        break;
-
-      case 'log_insight':
-        ss.getSheetByName('System_Insights').appendRow([new Date(), category, params.assetTag, params.insightCategory, params.details]);
-        break;
-
-      case 'submit_demand':
-        ss.getSheetByName('Material_Demands').appendRow([new Date(), params.technician, params.details, params.status, category]);
-        break;
-
-      case 'update_asset_status':
-        const astSheet = ss.getSheetByName('Master_Assets');
-        const astData = astSheet.getDataRange().getValues();
-        for (let i = 1; i < astData.length; i++) {
-          if (String(astData[i][1]).trim().toUpperCase() === String(params.tag).trim().toUpperCase()) {
-            astSheet.getRange(i + 1, 9).setValue(params.status);
-            break;
-          }
-        }
-        break;
-
-      case 'add_occupancy':
-        ss.getSheetByName('Seating_Plan').appendRow([
-          params.no, params.location, params.campusCode, params.floorTag, params.roomTag, 
-          params.stationTag, params.empName, params.empCode, params.empType, params.roomCode,
-          params.roomCodeDashboard, params.seatCode, params.bu, params.department, params.category, 
-          params.status, params.snapshotDate, params.finalDept || ''
-        ]);
-        break;
-
-      case 'update_occupancy':
-        const seatSheet = ss.getSheetByName('Seating_Plan');
-        const seatData = seatSheet.getDataRange().getValues();
-        for (let i = 1; i < seatData.length; i++) {
-          if (String(seatData[i][0]) === String(params.no)) {
-            seatSheet.getRange(i + 1, 1, 1, 18).setValues([[
-              params.no, params.location, params.campusCode, params.floorTag, params.roomTag, 
-              params.stationTag, params.empName, params.empCode, params.empType, params.roomCode,
-              params.roomCodeDashboard, params.seatCode, params.bu, params.department, params.category, 
-              params.status, params.snapshotDate, params.finalDept || ''
-            ]]);
-            break;
-          }
-        }
-        break;
-
-      case 'delete_occupancy':
-        const dSeatSheet = ss.getSheetByName('Seating_Plan');
-        const dSeatData = dSeatSheet.getDataRange().getValues();
-        for (let i = dSeatData.length - 1; i >= 1; i--) {
-          if (String(dSeatData[i][0]) === String(params.no)) {
-            dSeatSheet.deleteRow(i + 1);
-            break;
-          }
-        }
         break;
 
       case 'add_tool':
@@ -328,8 +231,37 @@ function doPost(e) {
         }
         break;
 
+      case 'submit_demand':
+        ss.getSheetByName('Material_Demands').appendRow([new Date(), params.technician, params.details, params.status, category]);
+        break;
+
+      case 'update_asset_status':
+        const astSheet = ss.getSheetByName('Master_Assets');
+        const astData = astSheet.getDataRange().getValues();
+        for (let i = 1; i < astData.length; i++) {
+          if (String(astData[i][1]).trim().toUpperCase() === String(params.tag).trim().toUpperCase()) {
+            astSheet.getRange(i + 1, 9).setValue(params.status);
+            break;
+          }
+        }
+        break;
+
+      case 'reset_leaderboard':
+        const logSheet = ss.getSheetByName('Performance_Log');
+        const allLogs = logSheet.getDataRange().getValues();
+        const header = allLogs.shift();
+        const logsToKeep = [];
+        allLogs.forEach(row => {
+          if (String(row[4] || '').toUpperCase() !== category) logsToKeep.push(row);
+        });
+        logSheet.clear();
+        logSheet.appendRow(header);
+        if (logsToKeep.length > 0) logSheet.getRange(2, 1, logsToKeep.length, header.length).setValues(logsToKeep);
+        logSheet.appendRow([new Date(), 'SYSTEM', 0, 'RESET_ALL', category]);
+        break;
+
       default:
-        return ContentService.createTextOutput("OK");
+        break;
     }
     return ContentService.createTextOutput("OK");
   } catch (err) {
