@@ -1,5 +1,5 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v19.0 - Base64 Direct Storage & Multi-Tech Accountability
+ * DISRUPT_FM_ULTIMATE Backend v21.0 - Robust Tool CRUD & Ledger Fixes
  */
 
 const SPREADSHEET_ID = "1yS28yOFwRWHoSvMmIm6bEisBFHTrQLiFZc38e6pnpv4";
@@ -23,7 +23,7 @@ function initializeSheets(ss) {
     'Gas_Ledger': ['Timestamp', 'ActionType', 'GasType', 'Amount', 'Technician', 'Reference', 'Category'],
     'System_Insights': ['Timestamp', 'Category', 'AssetTag', 'InsightType', 'Details'],
     'Seating_Plan': ['No', 'location', 'Campus Code', 'Floor Tag', 'Room No. Tag', 'Work Station Tag', 'Emp Name', 'Emp Code', 'Type of Employee', 'Room Code', 'Room Code - Dashboard', 'Seat Code', 'BU', 'Department', 'Category', 'Status', 'snapshot_date', 'FINAL-DEPT'],
-    'Master_Tools': ['Category', 'Name', 'Quantity']
+    'Master_Tools': ['Category', 'Name', 'Quantity', 'Technician']
   };
 
   Object.keys(headers).forEach(sheetName => {
@@ -49,7 +49,12 @@ function doGet(e) {
       case 'get_tools':
         const toolData = getSheetData(ss, 'Master_Tools');
         const filteredTools = toolData.filter(r => String(r[0]).toUpperCase() === category);
-        return createJsonResponse(filteredTools.map(r => ({ category: r[0], name: r[1], qty: r[2] })));
+        return createJsonResponse(filteredTools.map(r => ({ 
+          category: r[0], 
+          name: r[1], 
+          qty: Number(r[2]), 
+          technician: r[3] || '' 
+        })));
 
       case 'get_assets':
         const assetData = getSheetData(ss, 'Master_Assets');
@@ -156,7 +161,6 @@ function doPost(e) {
   try {
     switch(action) {
       case 'checklist_entry':
-        // Saving Base64 directly into cell as requested for preview support
         let photoData = params.photo || '';
         ss.getSheetByName('Checklist_Audit').appendRow([
           new Date(), 
@@ -206,15 +210,25 @@ function doPost(e) {
         break;
 
       case 'add_tool':
-        ss.getSheetByName('Master_Tools').appendRow([category, params.name, Number(params.qty)]);
+        ss.getSheetByName('Master_Tools').appendRow([
+          category, 
+          params.name, 
+          Number(params.qty),
+          params.technician || ''
+        ]);
         break;
 
       case 'update_tool':
         const toolSheet = ss.getSheetByName('Master_Tools');
         const tools = toolSheet.getDataRange().getValues();
         for (let i = 1; i < tools.length; i++) {
-          if (String(tools[i][0]).toUpperCase() === category && tools[i][1] === params.oldName) {
-            toolSheet.getRange(i + 1, 2, 1, 2).setValues([[params.name, Number(params.qty)]]);
+          // Robust trimmed lookup
+          if (String(tools[i][0]).toUpperCase() === category && String(tools[i][1]).trim() === String(params.oldName).trim()) {
+            toolSheet.getRange(i + 1, 2, 1, 3).setValues([[
+              params.name, 
+              Number(params.qty),
+              params.technician || ''
+            ]]);
             break;
           }
         }
@@ -224,7 +238,8 @@ function doPost(e) {
         const dToolSheet = ss.getSheetByName('Master_Tools');
         const dTools = dToolSheet.getDataRange().getValues();
         for (let i = dTools.length - 1; i >= 1; i--) {
-          if (String(dToolSheet[i][0]).toUpperCase() === category && dToolSheet[i][1] === params.name) {
+          // FIXED: Use dTools[i] array instead of dToolSheet object
+          if (String(dTools[i][0]).toUpperCase() === category && String(dTools[i][1]).trim() === String(params.name).trim()) {
             dToolSheet.deleteRow(i + 1);
             break;
           }

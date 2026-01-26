@@ -1,4 +1,3 @@
-
 import { FMCategory } from './types';
 
 export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzyhYVN42zKR9_wqEYuWRQVV2rcQuA0rl6jMNgIiz4kITaMGujVUrsOu9MY9_Nt38APEg/exec";
@@ -19,20 +18,38 @@ export const CAMPUS_ASSETS = {
   "141C": { fans: 7, washrooms: 7 }
 };
 
+export const EXHAUST_FAN_INVENTORY: Record<string, { floor: string, qty: number }[]> = {
+  "141D": [
+    { floor: "Ground Floor", qty: 17 },
+    { floor: "1st Floor", qty: 5 },
+    { floor: "2nd Floor", qty: 14 }
+  ],
+  "141C": [
+    { floor: "Total", qty: 3 }
+  ],
+  "140H": [
+    { floor: "Ground Floor", qty: 10 },
+    { floor: "Washrooms", qty: 6 },
+    { floor: "1st Floor", qty: 13 },
+    { floor: "Additional Washrooms", qty: 2 }
+  ]
+};
+
 // Comprehensive Electrical Checklist Structure
 export const ELECTRICAL_MODULE_DATA = {
   commonItems: [
-    { id: 'gen_warmup', label: 'Generator Warmup', group: 'Generator' },
-    { id: 'ups_battery', label: 'UPS Battery – Water Level Check & Cleaning', group: 'UPS' },
-    { id: 'ups_func', label: 'UPS Functioning Check', group: 'UPS' },
-    { id: 'db_insp', label: 'Electrical DB Inspection', group: 'DB' },
-    { id: 'volt_check', label: 'Voltage Meter Reading/Check', group: 'Meter' },
-    { id: 'gen_radiator', label: 'Generator Radiator – Water Level Check', group: 'Generator' },
-    { id: 'gen_cleaning', label: 'Generator – External Cleaning', group: 'Generator' },
-    { id: 'water_motor', label: 'Water Motor – Operational Check', group: 'Motor' },
-    { id: 'pool_motor', label: 'Pool Motor Switch On/Test', group: 'Motor' },
-    { id: 'fuel_start', label: 'Fuel Reading – At Generator Start', group: 'Fuel' },
-    { id: 'fuel_stop', label: 'Fuel Reading – At Generator Stop', group: 'Fuel' }
+    { id: 'gen_warmup', label: 'Generator Warmup', group: 'Generator', frequency: 'Daily' },
+    { id: 'ups_battery', label: 'UPS Battery – Water Level Check & Cleaning', group: 'UPS', frequency: 'Daily' },
+    { id: 'ups_func', label: 'UPS Functioning Check', group: 'UPS', frequency: 'Daily' },
+    { id: 'ups_battery', label: 'UPS Battery – Water Level Check & Cleaning', group: 'UPS', frequency: 'Daily' },
+    { id: 'db_insp', label: 'Electrical DB Inspection', group: 'DB', frequency: 'Daily' },
+    { id: 'gen_oil_check', label: 'Generator Oil Check', group: 'Generator', frequency: 'Monthly' },
+    { id: 'gen_radiator', label: 'Generator Radiator – Water Level Check', group: 'Generator', frequency: 'Daily' },
+    { id: 'gen_cleaning', label: 'Generator – External Cleaning', group: 'Generator', frequency: 'Monthly' },
+    { id: 'water_motor', label: 'Water Motor – Operational Check', group: 'Motor', frequency: 'Daily' },
+    { id: 'pool_motor', label: 'Pool Motor Switch On/Test', group: 'Motor', frequency: 'Daily' },
+    { id: 'fuel_start', label: 'Fuel Reading – At Generator Start', group: 'Fuel', frequency: 'Daily' },
+    { id: 'fuel_stop', label: 'Fuel Reading – At Generator Stop', group: 'Fuel', frequency: 'Daily' }
   ],
   campusSpecific: {
     "140H": {
@@ -69,7 +86,8 @@ export const CAMPUS_ROOMS: Record<string, Record<string, string[]>> = {
   }
 };
 
-export const GAS_TYPES = [
+// Explicitly type GAS_TYPES to avoid unknown type inference in components
+export const GAS_TYPES: Array<{name: string, type: string}> = [
   { name: "R22", type: "ac" },
   { name: "R410", type: "ac" },
   { name: "R32", type: "ac" },
@@ -104,7 +122,7 @@ export const DEMERIT_REASONS = [
   { label: "Late Attendance", points: -5 }
 ];
 
-export const DEFAULT_TOOLS: Record<string, { name: string, qty: number }[]> = {
+export const DEFAULT_TOOLS: Record<string, { name: string, qty: number, technician?: string }[]> = {
   'ac': [
     { name: "Wrench Pana", qty: 4 },
     { name: "Pliers Set", qty: 2 },
@@ -120,23 +138,14 @@ export const DEFAULT_TOOLS: Record<string, { name: string, qty: number }[]> = {
     { name: "Tool Bag", qty: 2 }
   ],
   'electrical': [
-    { name: "Digital Multimeter", qty: 1 },
-    { name: "Clamp Meter", qty: 1 },
-    { name: "Insulated Pliers", qty: 2 },
-    { name: "Wire Stripper", qty: 2 },
-    { name: "Insulated Screwdrivers", qty: 4 },
-    { name: "Voltage Tester", qty: 2 },
-    { name: "Electrical Tape Rolls", qty: 10 },
-    { name: "Tool Belt", qty: 1 }
+    { name: "Nose Plier", qty: 3 },
+    {  name: "Plier", qty: 3 },
+    { name: "Cutter Plier", qty: 3 },
+    {  name: "Hammer", qty: 2 },
+    {  name: "Screw Driver", qty: 3 },
+    {  name: "Soldering iron", qty: 1},
   ],
   'handyman': [
     { name: "Claw Hammer", qty: 1 },
-    { name: "Tape Measure (5m)", qty: 2 },
-    { name: "Spirit Level", qty: 1 },
-    { name: "Adjustable Wrench", qty: 1 },
-    { name: "Hex Key Set", qty: 1 },
-    { name: "Utility Knife", qty: 2 },
-    { name: "Power Drill", qty: 1 },
-    { name: "Step Ladder (Small)", qty: 1 }
   ]
 };

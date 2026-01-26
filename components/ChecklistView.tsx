@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types.ts';
-import { CAMPUS_ASSETS, CATEGORY_TECHS, ELECTRICAL_MODULE_DATA, ELECTRICAL_TECHNICIANS, TECHNICIANS } from '../constants.ts';
+import { CAMPUS_ASSETS, CATEGORY_TECHS, ELECTRICAL_MODULE_DATA, ELECTRICAL_TECHNICIANS, TECHNICIANS, EXHAUST_FAN_INVENTORY } from '../constants.ts';
 import { postAction, updatePoints } from '../services/api.ts';
 
 interface Props {
@@ -53,15 +53,36 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       }));
     } else if (category === 'electrical') {
       if (!selectedCampus) return [];
-      const campusInfo = ELECTRICAL_MODULE_DATA.campusSpecific[selectedCampus as keyof typeof ELECTRICAL_MODULE_DATA.campusSpecific];
       const items: any[] = [];
-      ELECTRICAL_MODULE_DATA.commonItems.forEach(item => {
+      
+      // Filter common items by frequency
+      const commonTasks = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === activeFrequency);
+      commonTasks.forEach(item => {
         items.push({ tag: `${item.id}_${selectedCampus}`, label: item.label, group: item.group, exactLocation: selectedCampus });
       });
-      for (let i = 1; i <= campusInfo.fans; i++) {
-        items.push({ tag: `FAN_${i}_${selectedCampus}`, label: `Exhaust Fan ${i}`, group: 'Exhaust Fans', exactLocation: `${selectedCampus} - Washrooms` });
+
+      // Handle Exhaust Fans (MONTHLY ONLY)
+      if (activeFrequency === ChecklistType.MONTHLY) {
+        const fanData = EXHAUST_FAN_INVENTORY[selectedCampus];
+        if (fanData) {
+          fanData.forEach(floorInfo => {
+            for (let i = 1; i <= floorInfo.qty; i++) {
+              items.push({ 
+                tag: `EF_${selectedCampus}_${floorInfo.floor.replace(/\s/g, '_')}_${i}`, 
+                label: `Exhaust Fan ${i} - ${floorInfo.floor}`, 
+                group: `Exhaust Fans (${floorInfo.floor})`, 
+                exactLocation: `${selectedCampus} - ${floorInfo.floor}` 
+              });
+            }
+          });
+        }
       }
-      items.push({ tag: `ROOM_INSP_${selectedCampus}`, label: 'Room/DB Inspection', group: 'Inspection', exactLocation: selectedCampus });
+
+      // Room/DB Inspections (DAILY ONLY)
+      if (activeFrequency === ChecklistType.DAILY) {
+        items.push({ tag: `ROOM_INSP_${selectedCampus}`, label: 'Room/DB Inspection', group: 'Inspection', exactLocation: selectedCampus });
+      }
+
       return items;
     } else if (category === 'handyman') {
       if (!selectedCampus) return [];
@@ -74,7 +95,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       }));
     }
     return [];
-  }, [category, assets, zoneIdx, selectedCampus]);
+  }, [category, assets, zoneIdx, selectedCampus, activeFrequency]);
 
   const groupedTasks = useMemo(() => {
     const groups: Record<string, any[]> = {};
@@ -135,7 +156,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   const takePhoto = () => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
-      // Downscale for Base64 cell efficiency
       const maxW = 800;
       const ratio = videoRef.current.videoHeight / videoRef.current.videoWidth;
       canvasRef.current.width = maxW;
@@ -159,7 +179,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       return;
     }
 
-    // MANDATORY PHOTO for Monthly/Quarterly across all Hard FM
     if (activeFrequency !== ChecklistType.DAILY) {
       setCurrentTask(itemTag);
       setCapturedPhoto(null);
@@ -184,6 +203,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       setTimeout(() => {
         setShowPhotoModal(false);
         setIsUploading(false);
+        setUploadSuccess(false);
         setCapturedPhoto(null);
       }, 1500);
     } catch (e) {
@@ -249,7 +269,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
           {[ChecklistType.DAILY, ChecklistType.MONTHLY, ChecklistType.QUARTERLY].map(freq => (
             <button 
               key={freq} 
-              onClick={() => setActiveFrequency(freq)} 
+              onClick={() => { setActiveFrequency(freq); }} 
               className={`flex-1 min-w-[70px] py-2 rounded-lg text-[8px] font-black uppercase transition-all tracking-widest italic ${activeFrequency === freq ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}
             >
               {freq}

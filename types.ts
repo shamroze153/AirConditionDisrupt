@@ -1,4 +1,5 @@
 
+
 export interface Asset {
   id: string | number;
   tag: string;
@@ -126,8 +127,10 @@ export enum ChecklistType {
   QUARTERLY = 'Quarterly'
 }
 
+// Fixed: Added optional technician property to Tool interface
 export interface Tool {
   category: string;
   name: string;
   qty: number;
+  technician?: string;
 }

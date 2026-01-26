@@ -110,7 +110,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
         finalAssetTag = foundAsset?.tag || formData.tag;
         finalLocation = foundAsset ? `${foundAsset.campus} - ${foundAsset.floor} - ${foundAsset.room}` : 'AC Direct Entry';
         
-        // AUTO-ASSIGN LOGIC BASED ON ASSET ID (Sectors)
         const idNum = Number(foundAsset?.id || 0);
         if (idNum >= 1 && idNum <= 40) finalAssigned = 'Bilal';
         else if (idNum >= 41 && idNum <= 82) finalAssigned = 'Asad';
@@ -119,19 +118,17 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       } else if (selectedCat.id === 'electrical') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
         
-        // ISSUE 1: ELECTRICAL ROUND-ROBIN (Ibraheem → Naveed Ali → Haris → Owais)
         const activeElectricians = ELECTRICAL_TECHNICIANS.filter(t => elecAttendance[t]);
         if (activeElectricians.length === 0) {
           finalAssigned = "Unassigned";
           finalStatus = "Pending Assignment – All Absent";
         } else {
-          // Calculate rotation based on total Electrical tickets
           const elecTicketCount = tickets.filter(t => String(t.category).toUpperCase() === 'ELECTRICAL').length;
           finalAssigned = activeElectricians[elecTicketCount % activeElectricians.length];
         }
       } else if (selectedCat.id === 'handyman') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
-        finalAssigned = 'Sajid'; // Always Sajid for GM
+        finalAssigned = 'Sajid';
       } else {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
       }
@@ -154,11 +151,13 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   };
 
   const isFormValid = () => {
-    if (!formData.details || formData.details.trim().length < 3) return false;
+    const detailValid = formData.details.trim().length > 0;
+    if (!detailValid) return false;
+
     if (selectedCat?.id === 'ac') {
-      return formData.tag.trim().length >= 2;
+      return formData.tag.trim().length > 0;
     } else {
-      return formData.campus && formData.floor && formData.location;
+      return !!(formData.campus && formData.floor && formData.location);
     }
   };
 
@@ -277,7 +276,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                </div>
              ) : (
                <div className="space-y-6 animate-slideUp relative z-10">
-                  {/* Complaint Type Switcher */}
                   <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 flex items-center justify-between">
                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic ml-1">Protocol Type</label>
                      <div className="flex bg-white p-1 rounded-xl shadow-inner gap-1">

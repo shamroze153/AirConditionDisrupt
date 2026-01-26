@@ -1,3 +1,4 @@
+
 import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool } from '../types';
 import { WEB_APP_URL } from '../constants';
 
@@ -74,15 +75,18 @@ export const fetchGlobalStats = async (): Promise<GlobalStatsResponse> =>
 export const fetchTools = async (category: CategoryKey): Promise<Tool[]> =>
   safeFetch(`${WEB_APP_URL}?action=get_tools&category=${category}`);
 
+// technician property now exists on Tool interface
 export const addTool = async (category: CategoryKey, tool: Tool): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'add_tool');
   fd.append('category', category);
   fd.append('name', tool.name);
   fd.append('qty', String(tool.qty));
+  fd.append('technician', tool.technician || '');
   await postAction(fd);
 };
 
+// technician property now exists on Tool interface
 export const updateTool = async (category: CategoryKey, oldName: string, tool: Tool): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_tool');
@@ -90,6 +94,7 @@ export const updateTool = async (category: CategoryKey, oldName: string, tool: T
   fd.append('oldName', oldName);
   fd.append('name', tool.name);
   fd.append('qty', String(tool.qty));
+  fd.append('technician', tool.technician || '');
   await postAction(fd);
 };
 

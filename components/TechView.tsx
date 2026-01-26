@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, StatsResponse, CategoryKey, Tool } from '../types.ts';
-import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES } from '../constants.ts';
-import { submitDemand, postAction, updatePoints, fetchTools, updateTool } from '../services/api.ts';
+import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES, ELECTRICAL_TECHNICIANS } from '../constants.ts';
+import { submitDemand, postAction, updatePoints, fetchTools, updateTool, addTool, deleteTool } from '../services/api.ts';
 
 interface Props {
   category: CategoryKey;
@@ -24,6 +25,10 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const [isSubmittingDemand, setIsSubmittingDemand] = useState(false);
   
   const activeTechList = CATEGORY_TECHS[category] || [];
+  
+  const allAvailableTechs = useMemo(() => {
+    return [...CATEGORY_TECHS.ac, ...CATEGORY_TECHS.electrical, ...CATEGORY_TECHS.handyman];
+  }, []);
 
   // Resolution State
   const [resolveTicket, setResolveTicket] = useState<Ticket | null>(null);
@@ -42,6 +47,12 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const [serverTools, setServerTools] = useState<Tool[]>([]);
   const [isLoadingTools, setIsLoadingTools] = useState(false);
   const [toolSearch, setToolSearch] = useState('');
+
+  // Tool CRUD State
+  const [showToolModal, setShowToolModal] = useState(false);
+  const [editingTool, setEditingTool] = useState<Tool | null>(null);
+  const [toolFormData, setToolFormData] = useState<Partial<Tool>>({ name: '', qty: 1, technician: '' });
+  const [isSavingTool, setIsSavingTool] = useState(false);
 
   const loadTools = async () => {
     setIsLoadingTools(true);
@@ -114,7 +125,6 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     
     try {
       await postAction(fd);
-      // DISTRIBUTE POINTS UNIVERSALLY
       for (const tech of solvingTechs) {
         await updatePoints(category, tech, 2, "Resolution Protocol Completed");
       }
@@ -128,6 +138,46 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     finally { setIsResolving(false); }
   };
 
+  const handleSaveTool = async () => {
+    if (!toolFormData.name || toolFormData.qty === undefined) return;
+    setIsSavingTool(true);
+    showToast("Synchronizing Hub Registry...");
+    try {
+      const toolToSave: Tool = {
+        name: toolFormData.name!,
+        qty: Number(toolFormData.qty!),
+        technician: toolFormData.technician || '',
+        category: category.toUpperCase()
+      };
+
+      if (editingTool) {
+        await updateTool(category, editingTool.name, toolToSave);
+        showToast("Tool Entry Modified Successfully");
+      } else {
+        await addTool(category, toolToSave);
+        showToast("New Tool Registered Successfully");
+      }
+      setShowToolModal(false);
+      loadTools();
+    } catch (e) {
+      showToast("Inventory Sync Failure");
+    } finally {
+      setIsSavingTool(false);
+    }
+  };
+
+  const handleDeleteTool = async (name: string) => {
+    if (!window.confirm(`CRITICAL: Permanently remove ${name} from inventory?`)) return;
+    showToast("Transmitting Deletion Request...");
+    try {
+      await deleteTool(category, name);
+      showToast("Tool Registry Cleared");
+      loadTools();
+    } catch (e) {
+      showToast("Deletion Request Rejected");
+    }
+  };
+
   const handleUpdateToolQty = async (toolName: string, delta: number) => {
     if (!isAdminUnlocked) return;
     const tool = serverTools.find(t => t.name === toolName);
@@ -135,9 +185,9 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     const newQty = Math.max(0, tool.qty + delta);
     try {
       await updateTool(category, toolName, { ...tool, qty: newQty });
-      showToast(`${toolName} Registry Updated`);
+      showToast(`${toolName} Volume Updated`);
       loadTools();
-    } catch (e) { showToast("Tool Update Error"); }
+    } catch (e) { showToast("Volume Sync Error"); }
   };
 
   const handleSubmitDemand = async () => {
@@ -163,6 +213,20 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
       prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]
     );
   };
+
+  const groupedTools = useMemo(() => {
+    const filtered = serverTools.filter(t => !toolSearch || t.name.toLowerCase().includes(toolSearch.toLowerCase()));
+    if (category !== 'electrical') return { 'General Inventory': filtered };
+    const groups: Record<string, Tool[]> = {};
+    filtered.forEach(t => {
+      const bag = t.technician || 'Common Inventory';
+      if (!groups[bag]) groups[bag] = [];
+      groups[bag].push(t);
+    });
+    return groups;
+  }, [category, serverTools, toolSearch]);
+
+  const electricalBags = ["Ibraheem", "Naveed Ali", "Haris & Owais", "Common Inventory"];
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-6 animate-fadeIn pb-32">
@@ -319,36 +383,159 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
 
       {view === 'tools' && (
         <div className="animate-fadeIn space-y-6">
-           <div className="flex justify-between items-center px-2">
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 italic leading-none">Inventory Stream</h3>
-              <button onClick={handleAdminToggle} className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${isAdminUnlocked ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300 border border-slate-100 hover:text-indigo-600'}`}>
-                 <i className={`fas fa-${isAdminUnlocked ? 'lock-open' : 'lock'} text-xs`}></i>
-              </button>
+           <div className="flex flex-wrap justify-between items-center px-2 gap-4">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 italic leading-none">Inventory Stream</h3>
+                <p className="text-[7px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">Asset Verification Ledger</p>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                 <div className="relative">
+                   <input 
+                     type="text" 
+                     placeholder="Filter inventory..." 
+                     value={toolSearch} 
+                     onChange={e => setToolSearch(e.target.value)} 
+                     className="bg-white border border-slate-100 px-10 py-2.5 rounded-xl text-[9px] font-bold outline-none focus:border-indigo-500 shadow-sm w-48 md:w-64"
+                   />
+                   <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-[10px]"></i>
+                 </div>
+                 
+                 {isAdminUnlocked && (
+                   <button 
+                     onClick={() => { setEditingTool(null); setToolFormData({ name: '', qty: 1, technician: '' }); setShowToolModal(true); }}
+                     className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                   >
+                     <i className="fas fa-plus"></i>
+                     <span>Add Tool</span>
+                   </button>
+                 )}
+
+                 <button onClick={handleAdminToggle} className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${isAdminUnlocked ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300 border border-slate-100 hover:text-indigo-600'}`}>
+                    <i className={`fas fa-${isAdminUnlocked ? 'lock-open' : 'lock'} text-xs`}></i>
+                 </button>
+              </div>
            </div>
+
            {isLoadingTools ? (
              <div className="py-32 flex flex-col items-center justify-center opacity-10"><i className="fas fa-circle-notch animate-spin text-5xl mb-4"></i><p className="text-[10px] font-black uppercase italic">Fetching Tool Registry...</p></div>
            ) : (
-             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {serverTools.map((tool, i) => (
-                  <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all relative overflow-hidden group">
-                     <div className="flex justify-between items-start mb-6">
-                        <div className="w-10 h-10 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center group-hover:bg-slate-950 group-hover:text-white transition-all shadow-inner"><i className="fas fa-wrench"></i></div>
-                        <div className="text-right">
-                           <p className="text-[8px] font-black text-slate-300 uppercase italic mb-1">Vol</p>
-                           <p className="text-2xl font-black text-slate-950 italic">{tool.qty}</p>
+             <div className="space-y-10">
+               {Object.entries(groupedTools).map(([group, tools]) => (
+                 <div key={group} className="space-y-4">
+                   <div className="flex items-center gap-3 ml-2">
+                     <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
+                     <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 italic">{group}</h4>
+                   </div>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {tools.map((tool, i) => (
+                        <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all relative overflow-hidden group">
+                           <div className="flex justify-between items-start mb-6">
+                              <div className="w-10 h-10 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center group-hover:bg-slate-900 group-hover:text-white transition-all shadow-inner"><i className="fas fa-wrench"></i></div>
+                              <div className="text-right">
+                                 <p className="text-[8px] font-black text-slate-300 uppercase italic mb-1">Vol</p>
+                                 <p className="text-2xl font-black text-slate-950 italic">{tool.qty}</p>
+                              </div>
+                           </div>
+                           <h4 className="text-[12px] font-black text-slate-900 uppercase italic mb-6 leading-tight">"{tool.name}"</h4>
+                           
+                           {isAdminUnlocked && (
+                             <div className="flex flex-col gap-3">
+                               <div className="flex gap-2">
+                                  <button onClick={() => handleUpdateToolQty(tool.name, -1)} className="flex-1 bg-slate-50 text-slate-400 py-2 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-all"><i className="fas fa-minus text-[8px]"></i></button>
+                                  <button onClick={() => handleUpdateToolQty(tool.name, 1)} className="flex-1 bg-slate-50 text-slate-400 py-2 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 transition-all"><i className="fas fa-plus text-[8px]"></i></button>
+                               </div>
+                               <div className="flex gap-2">
+                                  <button 
+                                    onClick={() => { setEditingTool(tool); setToolFormData({ ...tool }); setShowToolModal(true); }}
+                                    className="flex-1 bg-indigo-50 text-indigo-400 py-2 rounded-lg hover:bg-indigo-600 hover:text-white transition-all text-[8px] font-black uppercase"
+                                  >
+                                    <i className="fas fa-pencil-alt mr-1"></i> Edit
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteTool(tool.name)}
+                                    className="flex-1 bg-rose-50 text-rose-300 py-2 rounded-lg hover:bg-rose-600 hover:text-white transition-all text-[8px] font-black uppercase"
+                                  >
+                                    <i className="fas fa-trash mr-1"></i> Del
+                                  </button>
+                               </div>
+                             </div>
+                           )}
                         </div>
-                     </div>
-                     <h4 className="text-[12px] font-black text-slate-900 uppercase italic mb-6 leading-tight">"{tool.name}"</h4>
-                     {isAdminUnlocked && (
-                       <div className="flex gap-2 pt-4 border-t border-slate-50">
-                          <button onClick={() => handleUpdateToolQty(tool.name, -1)} className="flex-1 bg-slate-50 text-slate-400 py-3 rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-all"><i className="fas fa-minus text-[10px]"></i></button>
-                          <button onClick={() => handleUpdateToolQty(tool.name, 1)} className="flex-1 bg-slate-50 text-slate-400 py-3 rounded-xl hover:bg-emerald-50 hover:text-emerald-600 transition-all"><i className="fas fa-plus text-[10px]"></i></button>
-                       </div>
-                     )}
-                  </div>
-                ))}
+                      ))}
+                   </div>
+                 </div>
+               ))}
+               {Object.keys(groupedTools).length === 0 && (
+                 <div className="py-24 text-center opacity-10">
+                   <i className="fas fa-search text-6xl mb-6"></i>
+                   <p className="text-xs font-black uppercase tracking-[0.4em] italic">No Matching Tools Found</p>
+                 </div>
+               )}
              </div>
            )}
+        </div>
+      )}
+
+      {/* TOOL MANAGEMENT MODAL */}
+      {showToolModal && (
+        <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
+          <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-3xl border border-white/5 overflow-hidden">
+             <div className="flex justify-between items-center mb-10">
+               <div>
+                 <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">
+                   {editingTool ? 'Modify Tool' : 'Register Tool'}
+                 </h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-3 tracking-widest italic">Authorized Entry</p>
+               </div>
+               <button onClick={() => setShowToolModal(false)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 transition-all"><i className="fas fa-times text-xl"></i></button>
+             </div>
+             
+             <div className="space-y-6">
+                <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Tool Description</label>
+                  <input 
+                    type="text" 
+                    value={toolFormData.name || ''} 
+                    onChange={e => setToolFormData({...toolFormData, name: e.target.value})}
+                    placeholder="e.g. Hammer Drill"
+                    className="w-full bg-transparent font-black text-[11px] outline-none italic uppercase"
+                  />
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Stock Volume</label>
+                  <input 
+                    type="number" 
+                    value={toolFormData.qty || 0} 
+                    onChange={e => setToolFormData({...toolFormData, qty: parseInt(e.target.value) || 0})}
+                    className="w-full bg-transparent font-black text-xl outline-none italic"
+                  />
+                </div>
+
+                {category === 'electrical' && (
+                  <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
+                    <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Bag Assignment</label>
+                    <select 
+                      value={toolFormData.technician || ''} 
+                      onChange={e => setToolFormData({...toolFormData, technician: e.target.value})}
+                      className="w-full bg-transparent font-black text-[10px] outline-none italic uppercase cursor-pointer"
+                    >
+                      <option value="">Common Inventory</option>
+                      {electricalBags.map(bag => <option key={bag} value={bag}>{bag}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleSaveTool} 
+                  disabled={isSavingTool || !toolFormData.name}
+                  className="w-full bg-slate-950 text-white py-6 rounded-2xl font-black uppercase text-[10px] tracking-[0.3em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30"
+                >
+                  {isSavingTool ? 'Synchronizing...' : 'Finalize Registry'}
+                </button>
+             </div>
+          </div>
         </div>
       )}
 
@@ -364,7 +551,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                 <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100">
                   <label className="block text-[8px] font-black text-slate-400 uppercase mb-4 ml-1 italic">Who solved this issue?</label>
                   <div className="grid grid-cols-2 gap-3">
-                     {activeTechList.map(tech => (
+                     {allAvailableTechs.map(tech => (
                        <button key={tech} onClick={() => toggleSolvingTech(tech)} className={`p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${solvingTechs.includes(tech) ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-md' : 'border-white bg-white text-slate-400'}`}>
                           <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${solvingTechs.includes(tech) ? 'bg-indigo-600 text-white' : 'bg-slate-100'}`}>{tech[0]}</div>
                           <span className="text-[9px] font-bold uppercase">{tech}</span>
@@ -393,7 +580,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                     {gasUsedYesNo === 'Yes' && (
                       <div className="flex gap-3 animate-slideDown">
                         <select value={selectedGasType} onChange={e => setSelectedGasType(e.target.value)} className="flex-1 bg-white border border-slate-200 p-3 rounded-xl text-[11px] font-black italic uppercase outline-none">
-                           {GAS_TYPES.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
+                           {(GAS_TYPES as any[]).map((g: any) => <option key={g.name} value={g.name}>{g.name}</option>)}
                         </select>
                         <input type="number" step="0.1" value={gasAmount} onChange={e => setGasAmount(e.target.value)} className="w-24 bg-white border border-slate-200 p-3 rounded-xl text-[13px] font-black italic outline-none" placeholder="KG" />
                       </div>
@@ -406,7 +593,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                   <textarea value={resolveRemarks} onChange={e => setResolveRemarks(e.target.value)} rows={3} placeholder="Detail actions..." className="w-full bg-transparent font-bold text-[11px] outline-none italic uppercase resize-none leading-relaxed" />
                 </div>
 
-                <button onClick={handleResolve} disabled={isResolving || !resolveRemarks.trim() || solvingTechs.length === 0} className="w-full bg-slate-950 text-white py-6 rounded-[1.5rem] font-black uppercase text-[10px] tracking-[0.4em] shadow-2xl active:scale-95 transition-all disabled:opacity-30 italic flex items-center justify-center gap-4">
+                <button onClick={handleResolve} disabled={isResolving || !resolveRemarks.trim() || solvingTechs.length === 0} className="w-full bg-slate-950 text-white py-6 rounded-[1.5rem] font-black uppercase text-[10px] tracking-[0.4em] shadow-2xl active:scale-[0.98] transition-all disabled:opacity-30 italic flex items-center justify-center gap-4">
                   {isResolving ? <i className="fas fa-circle-notch animate-spin text-teal-400"></i> : <i className="fas fa-check-double text-teal-400"></i>}
                   <span>{isResolving ? 'Synchronizing...' : 'Finalize Solution'}</span>
                 </button>
