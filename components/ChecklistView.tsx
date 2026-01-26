@@ -22,7 +22,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   const [issueDetails, setIssueDetails] = useState('');
   const [showIssueModal, setShowIssueModal] = useState(false);
 
-  // Photo Logic
+  // Photo Evidence State
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -45,7 +45,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       }).map(a => ({ 
         tag: a.tag, 
         label: a.room, 
-        group: `Zone ${zoneIdx + 1} Registry`, 
+        group: `Zone ${zoneIdx + 1}`, 
         id: a.id, 
         detailPreview: `${a.brand} | ${a.cap}T`,
         exactLocation: `${a.campus} - ${a.floor} - ${a.room}`,
@@ -59,22 +59,17 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         items.push({ tag: `${item.id}_${selectedCampus}`, label: item.label, group: item.group, exactLocation: selectedCampus });
       });
       for (let i = 1; i <= campusInfo.fans; i++) {
-        items.push({ tag: `FAN_${i}_${selectedCampus}`, label: `Washroom Exhaust Fan ${i}`, group: 'Exhaust Fans', exactLocation: `${selectedCampus} - Washrooms` });
+        items.push({ tag: `FAN_${i}_${selectedCampus}`, label: `Exhaust Fan ${i}`, group: 'Exhaust Fans', exactLocation: `${selectedCampus} - Washrooms` });
       }
-      items.push({ tag: `ROOM_INSP_${selectedCampus}`, label: 'Room Inspection – Lights, Sockets, etc.', group: 'Room Inspection', exactLocation: selectedCampus });
-      campusInfo.extraRooms.forEach(room => {
-        items.push({ tag: `EXTRA_${room.replace(/\s/g, '_')}_${selectedCampus}`, label: room, group: 'Specific Areas', exactLocation: `${selectedCampus} - ${room}` });
-      });
+      items.push({ tag: `ROOM_INSP_${selectedCampus}`, label: 'Room/DB Inspection', group: 'Inspection', exactLocation: selectedCampus });
       return items;
     } else if (category === 'handyman') {
       if (!selectedCampus) return [];
       const count = CAMPUS_ASSETS[selectedCampus as keyof typeof CAMPUS_ASSETS].washrooms;
       return Array.from({ length: count }, (_, i) => ({
         tag: `GM-WR-${selectedCampus}-${i + 1}`,
-        label: `Washroom ${i + 1} (Basin/Tap/Toilet)`,
-        group: 'Washrooms',
-        id: undefined,
-        detailPreview: undefined,
+        label: `Washroom ${i + 1} (Utilities)`,
+        group: 'Area Checklist',
         exactLocation: `${selectedCampus} - Washroom ${i + 1}`
       }));
     }
@@ -97,13 +92,13 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     return stats?.hvac?.daily || [];
   }, [stats, activeFrequency]);
 
-  const statsOverview = useMemo(() => {
+  // Completion Percentage Logic
+  const completionStats = useMemo(() => {
     const calc = (list: string[]) => {
       if (currentTaskItems.length === 0) return 0;
       const count = currentTaskItems.filter(item => list.includes(item.tag)).length;
       return Math.round((count / currentTaskItems.length) * 100);
     };
-
     return {
       daily: calc(stats?.hvac?.daily || []),
       monthly: calc(stats?.hvac?.monthly || []),
@@ -111,9 +106,9 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     };
   }, [currentTaskItems, stats]);
 
-  const getStatusColor = (pct: number) => {
+  const getPctColor = (pct: number) => {
     if (pct === 100) return 'text-emerald-500';
-    if (pct > 0) return 'text-amber-500';
+    if (pct >= 50) return 'text-amber-500';
     return 'text-rose-500';
   };
 
@@ -137,48 +132,10 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCapturedPhoto(reader.result as string);
-        stopCamera();
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAction = async (itemTag: string, status: 'OK' | 'Issue') => {
-    if ((category === 'electrical' || category === 'handyman') && !selectedCampus) {
-      showToast("Select Campus Protocol First");
-      return;
-    }
-
-    if (status === 'Issue') {
-      setCurrentTask(itemTag);
-      setShowIssueModal(true);
-      return;
-    }
-
-    // MANDATORY PHOTO for all domains on Monthly/Quarterly
-    if (activeFrequency !== ChecklistType.DAILY) {
-      setCurrentTask(itemTag);
-      setCapturedPhoto(null);
-      setUploadSuccess(false);
-      setIsUploading(false);
-      setShowPhotoModal(true);
-      startCamera();
-      return;
-    }
-
-    await finalizeEntry(itemTag, "OK", "Routine Check Verified", "");
-  };
-
   const takePhoto = () => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
-      // Set fixed max width for Base64 efficiency in Google Sheets
+      // Downscale for Base64 cell efficiency
       const maxW = 800;
       const ratio = videoRef.current.videoHeight / videoRef.current.videoWidth;
       canvasRef.current.width = maxW;
@@ -190,9 +147,34 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     }
   };
 
-  const handleTransmitWithStatus = async () => {
+  const handleAction = async (itemTag: string, status: 'OK' | 'Issue') => {
+    if ((category === 'electrical' || category === 'handyman') && !selectedCampus) {
+      showToast("Select Campus First");
+      return;
+    }
+
+    if (status === 'Issue') {
+      setCurrentTask(itemTag);
+      setShowIssueModal(true);
+      return;
+    }
+
+    // MANDATORY PHOTO for Monthly/Quarterly across all Hard FM
+    if (activeFrequency !== ChecklistType.DAILY) {
+      setCurrentTask(itemTag);
+      setCapturedPhoto(null);
+      setUploadSuccess(false);
+      setShowPhotoModal(true);
+      startCamera();
+      return;
+    }
+
+    await finalizeEntry(itemTag, "OK", "Routine Check Verified", "");
+  };
+
+  const handleTransmitPhoto = async () => {
     if (!currentTask || !capturedPhoto) {
-      showToast("Evidence Photo Mandatory");
+      showToast("Photo Evidence Required");
       return;
     }
     setIsUploading(true);
@@ -202,11 +184,10 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       setTimeout(() => {
         setShowPhotoModal(false);
         setIsUploading(false);
-        setUploadSuccess(false);
         setCapturedPhoto(null);
       }, 1500);
     } catch (e) {
-      showToast("Sync Error");
+      showToast("Sync Failure");
       setIsUploading(false);
     }
   };
@@ -214,7 +195,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   const finalizeEntry = async (itemTag: string, status: string, remarks: string, photo: string) => {
     const frequency = activeFrequency;
     const taskItem = currentTaskItems.find(it => it.tag === itemTag);
-    const locationStr = taskItem?.exactLocation || (category === 'ac' ? 'Facility Sector' : (selectedCampus || 'Asset Sector'));
+    const locationStr = taskItem?.exactLocation || selectedCampus || 'Facility Sector';
 
     const fd = new FormData();
     fd.append('action', 'checklist_entry');
@@ -222,17 +203,15 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     fd.append('technician', techName);
     fd.append('assetTag', itemTag);
     fd.append('frequency', frequency);
-    fd.append('task', `${frequency} ${category.toUpperCase()} Verification`);
+    fd.append('task', `${frequency} ${category.toUpperCase()} Check`);
     fd.append('status', status);
     fd.append('remarks', remarks);
     if (photo) fd.append('photo', photo); 
     
-    if (!isUploading) showToast(`Syncing ${category.toUpperCase()} Protocol...`);
+    if (!isUploading) showToast(`Synchronizing ${category.toUpperCase()}...`);
     await postAction(fd);
 
-    if (status === "OK") {
-       await updatePoints(category, techName, 1, `${category.toUpperCase()} Checklist Merit`);
-    }
+    if (status === "OK") await updatePoints(category, techName, 1, `${category.toUpperCase()} Checklist Merit`);
 
     if (status === "Issue") {
       const wofd = new FormData();
@@ -241,33 +220,18 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       wofd.append('complaintType', 'Proactive');
       wofd.append('location', locationStr);
       wofd.append('assetTag', itemTag);
-      wofd.append('details', `[CHECKLIST FAILURE] ${itemTag}: ${remarks}`);
-      
-      let finalAssigned = techName;
-      if (category === 'ac') {
-        const matchingAsset = assets.find(a => a.tag === itemTag);
-        const idNum = Number(matchingAsset?.id || 0);
-        if (idNum >= 1 && idNum <= 40) finalAssigned = 'Bilal';
-        else if (idNum >= 41 && idNum <= 82) finalAssigned = 'Asad';
-        else if (idNum >= 83 && idNum <= 121) finalAssigned = 'Taimoor';
-        else if (idNum >= 122 && idNum <= 161) finalAssigned = 'Saboor';
-      } else if (category === 'handyman') {
-        finalAssigned = 'Sajid';
-      } else if (category === 'electrical') {
-         const ticketsCount = stats?.complaints?.length || 0;
-         finalAssigned = ELECTRICAL_TECHNICIANS[ticketsCount % ELECTRICAL_TECHNICIANS.length];
-      }
-      
-      wofd.append('assignedTech', finalAssigned); 
+      wofd.append('details', `[CHECKLIST ALERT] ${itemTag}: ${remarks}`);
+      wofd.append('assignedTech', techName); 
       wofd.append('status', 'Open');
       await postAction(wofd);
-      showToast(`Work Order Dispatched: ${finalAssigned}`);
+      showToast("Proactive Work Order Generated");
     }
     refreshData();
   };
 
   return (
-    <div className="h-full w-full bg-slate-50 flex flex-col pb-20">
+    <div className="h-full w-full bg-slate-50 flex flex-col pb-20 overflow-hidden">
+      {/* COMPLIANCE HEADER */}
       <div className="bg-white pt-6 pb-4 px-6 shadow-sm z-30 sticky top-0 border-b">
         <div className="flex justify-between items-center mb-5">
           <button onClick={onBack} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 active:scale-90 shadow-inner">
@@ -275,18 +239,18 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
           </button>
           <div className="text-right">
             <h3 className="font-black text-slate-900 text-lg uppercase italic tracking-tighter leading-none">
-              {category.toUpperCase()} Protocol
+              {category.toUpperCase()} HUB
             </h3>
-            <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 tracking-widest italic">{techName} Control Hub</p>
+            <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 tracking-widest italic">{techName} Operational</p>
           </div>
         </div>
 
-        <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl shadow-inner">
+        <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl shadow-inner overflow-x-auto hide-scroll">
           {[ChecklistType.DAILY, ChecklistType.MONTHLY, ChecklistType.QUARTERLY].map(freq => (
             <button 
               key={freq} 
               onClick={() => setActiveFrequency(freq)} 
-              className={`flex-1 py-2 rounded-lg text-[8px] font-black uppercase transition-all tracking-widest italic ${activeFrequency === freq ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-white'}`}
+              className={`flex-1 min-w-[70px] py-2 rounded-lg text-[8px] font-black uppercase transition-all tracking-widest italic ${activeFrequency === freq ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}
             >
               {freq}
             </button>
@@ -294,7 +258,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         </div>
 
         {category !== 'ac' && (
-          <div className="flex gap-2 mb-4 bg-slate-50 p-1 rounded-xl shadow-inner overflow-x-auto hide-scroll">
+          <div className="flex gap-2 mb-4 bg-slate-50 p-1 rounded-xl shadow-inner overflow-x-auto hide-scroll border border-slate-100">
             {['140H', '141D', '141C'].map(campus => (
               <button 
                 key={campus} 
@@ -307,70 +271,60 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-6 py-3 border-t border-slate-50 mt-2 px-2">
+        {/* COMPLETION RIBBON */}
+        <div className="flex items-center justify-between gap-4 py-3 border-t border-slate-50 mt-2 px-2">
            <div className="flex gap-6">
               {[
-                { label: 'Daily', pct: statsOverview.daily },
-                { label: 'Monthly', pct: statsOverview.monthly },
-                { label: 'Quarterly', pct: statsOverview.quarterly }
+                { label: 'Daily', pct: completionStats.daily },
+                { label: 'Monthly', pct: completionStats.monthly },
+                { label: 'Quartly', pct: completionStats.quarterly }
               ].map(stat => (
                 <div key={stat.label} className="flex flex-col items-center">
-                   <span className="text-[7px] font-black text-slate-300 uppercase italic mb-1">{stat.label} %</span>
-                   <div className={`text-xl font-black italic leading-none ${getStatusColor(stat.pct)}`}>
+                   <span className="text-[7px] font-black text-slate-300 uppercase italic mb-1">{stat.label}</span>
+                   <div className={`text-xl font-black italic leading-none ${getPctColor(stat.pct)}`}>
                      {stat.pct}<span className="text-[10px] ml-0.5">%</span>
                    </div>
                 </div>
               ))}
            </div>
-           <div className="flex-1 max-w-[140px] flex flex-col items-end">
-              <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Active Cycle Progress</span>
+           <div className="flex-1 max-w-[120px] flex flex-col items-end">
+              <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Zone Progress</span>
               <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                <div className={`h-full bg-slate-900 transition-all duration-1000`} style={{ width: `${statsOverview[activeFrequency.toLowerCase() as keyof typeof statsOverview]}%` }}></div>
+                <div className={`h-full bg-slate-900 transition-all duration-1000`} style={{ width: `${completionStats[activeFrequency.toLowerCase() as keyof typeof completionStats] || 0}%` }}></div>
               </div>
            </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-8 hide-scroll bg-slate-50/50">
+      {/* TASK LIST */}
+      <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-8 hide-scroll">
         {category !== 'ac' && !selectedCampus ? (
           <div className="py-24 text-center opacity-10 flex flex-col items-center">
             <i className="fas fa-building text-7xl mb-6"></i>
-            <p className="text-xs font-black uppercase tracking-[0.5em]">Identify Campus Infrastructure</p>
+            <p className="text-xs font-black uppercase tracking-[0.5em]">Select Campus Registry</p>
           </div>
         ) : (
           Object.entries(groupedTasks).map(([group, tasks]) => (
             <div key={group} className="space-y-3">
-               <div className="flex items-center gap-3 px-2">
-                  <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">{group} Registry</h4>
-               </div>
-               {(tasks as any[]).map((item: any, i: number) => {
+               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-2">{group}</h4>
+               {(tasks as any[]).map((item, i) => {
                  const isDone = currentDoneList.includes(item.tag);
                  return (
-                   <div key={i} className={`bg-white p-5 rounded-[2rem] border-2 transition-all group ${isDone ? 'border-emerald-100 bg-emerald-50/20' : 'border-white shadow-sm hover:border-slate-100'}`}>
+                   <div key={i} className={`bg-white p-5 rounded-[2rem] border-2 transition-all shadow-sm ${isDone ? 'border-emerald-100 bg-emerald-50/20' : 'border-white hover:border-slate-100'}`}>
                      <div className="flex justify-between items-center">
-                       <div className="flex-1 pr-6">
-                         <div className="flex flex-col">
-                           <div className="flex flex-wrap items-center gap-2 mb-1">
-                             {item.id && <span className="bg-slate-950 text-white text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest shadow-sm">ID {item.id}</span>}
-                             <span className="bg-indigo-50 text-indigo-600 text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest border border-indigo-100">{item.tag}</span>
-                             <span className="text-[7px] text-slate-300 font-bold uppercase tracking-tighter italic">{item.exactLocation}</span>
-                           </div>
-                           <p className="text-[11px] font-black text-slate-900 uppercase italic leading-tight">
-                             {item.label}
-                           </p>
-                           {item.detailPreview && (
-                             <p className="text-[8px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1.5 italic">
-                               {item.detailPreview}
-                             </p>
-                           )}
+                       <div className="flex-1 pr-4">
+                         <div className="flex flex-wrap items-center gap-2 mb-1">
+                           <span className="bg-indigo-50 text-indigo-600 text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest border border-indigo-100">{item.tag}</span>
+                           <span className="text-[7px] text-slate-300 font-bold uppercase tracking-tighter italic">{item.exactLocation}</span>
                          </div>
+                         <p className="text-[11px] font-black text-slate-900 uppercase italic leading-tight">{item.label}</p>
+                         {item.detailPreview && <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 italic">{item.detailPreview}</p>}
                        </div>
                        {isDone ? (
                          <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg animate-fadeIn"><i className="fas fa-check text-xs"></i></div>
                        ) : (
                          <div className="flex gap-2">
-                           <button onClick={() => handleAction(item.tag, 'OK')} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all">Verified</button>
+                           <button onClick={() => handleAction(item.tag, 'OK')} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all shadow-md">Verified</button>
                            <button onClick={() => handleAction(item.tag, 'Issue')} className="bg-rose-50 text-rose-600 px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all">Fault</button>
                          </div>
                        )}
@@ -383,13 +337,12 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         )}
       </div>
 
+      {/* PHOTO MODAL */}
       {showPhotoModal && (
         <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center p-6 backdrop-blur-md animate-fadeIn">
-           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl overflow-hidden flex flex-col items-center">
-              <div className="w-full mb-6">
-                 <h3 className="text-xl font-black text-slate-950 uppercase italic tracking-tighter leading-none mb-2 text-center">Evidence Protocol</h3>
-                 <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest italic text-center">Required for {activeFrequency} verification</p>
-              </div>
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center">
+              <h3 className="text-xl font-black text-slate-950 uppercase italic tracking-tighter text-center mb-2">Public Evidence</h3>
+              <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest italic text-center mb-6">Mandatory for {activeFrequency} Validation</p>
               
               <div className="w-full aspect-square bg-slate-100 rounded-[2rem] overflow-hidden mb-6 border-2 border-slate-100 relative group">
                 {capturedPhoto ? (
@@ -398,15 +351,9 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                     {isUploading && (
                       <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center backdrop-blur-sm transition-all">
                         {uploadSuccess ? (
-                          <div className="flex flex-col items-center animate-bounce">
-                            <i className="fas fa-check-circle text-emerald-400 text-5xl mb-3"></i>
-                            <p className="text-white text-[10px] font-black uppercase tracking-widest italic">Uploaded</p>
-                          </div>
+                          <i className="fas fa-check-circle text-emerald-400 text-5xl mb-3 animate-bounce"></i>
                         ) : (
-                          <div className="flex flex-col items-center">
-                            <i className="fas fa-circle-notch animate-spin text-teal-400 text-5xl mb-4"></i>
-                            <p className="text-white text-[10px] font-black uppercase tracking-widest italic">Uploading...</p>
-                          </div>
+                          <i className="fas fa-circle-notch animate-spin text-teal-400 text-5xl"></i>
                         )}
                       </div>
                     )}
@@ -414,51 +361,35 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                 ) : (
                   <>
                     <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover grayscale brightness-110" />
-                    {!capturedPhoto && isCameraActive && (
-                      <div className="absolute inset-0 border-4 border-indigo-500/20 pointer-events-none"></div>
-                    )}
                     <div className="absolute bottom-4 left-0 w-full flex justify-center gap-3">
-                       <button onClick={() => fileInputRef.current?.click()} className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest italic shadow-xl">
-                          <i className="fas fa-folder-open mr-2"></i>Gallery
-                       </button>
+                       <button onClick={() => fileInputRef.current?.click()} className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest shadow-xl"><i className="fas fa-folder-open mr-2"></i>Gallery</button>
                     </div>
                   </>
                 )}
               </div>
 
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                accept="image/*" 
-                className="hidden" 
-                onChange={handleFileChange} 
-              />
+              <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => { setCapturedPhoto(reader.result as string); stopCamera(); };
+                  reader.readAsDataURL(file);
+                }
+              }} />
 
               <div className="grid grid-cols-2 gap-4 w-full">
                 {capturedPhoto ? (
                   <>
-                    <button 
-                      disabled={isUploading}
-                      onClick={() => { setCapturedPhoto(null); startCamera(); }} 
-                      className="py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest italic disabled:opacity-50"
-                    >
-                      Retake
-                    </button>
-                    <button 
-                      disabled={isUploading}
-                      onClick={handleTransmitWithStatus} 
-                      className="py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest italic shadow-xl flex items-center justify-center gap-3 disabled:bg-slate-400"
-                    >
-                       <i className="fas fa-cloud-upload-alt"></i>
-                       <span>Transmit</span>
+                    <button disabled={isUploading} onClick={() => { setCapturedPhoto(null); startCamera(); }} className="py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] italic">Retake</button>
+                    <button disabled={isUploading} onClick={handleTransmitPhoto} className="py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl flex items-center justify-center gap-3 italic">
+                       <i className="fas fa-cloud-upload-alt"></i><span>Transmit</span>
                     </button>
                   </>
                 ) : (
                   <>
-                    <button onClick={() => { setShowPhotoModal(false); stopCamera(); }} className="py-4 text-slate-400 font-black uppercase text-[10px] tracking-widest italic">Cancel</button>
-                    <button onClick={takePhoto} className="py-4 bg-slate-950 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest italic shadow-xl flex items-center justify-center gap-3">
-                       <i className="fas fa-camera"></i>
-                       <span>Capture</span>
+                    <button onClick={() => { setShowPhotoModal(false); stopCamera(); }} className="py-4 text-slate-400 font-black uppercase text-[10px] italic">Cancel</button>
+                    <button onClick={takePhoto} className="py-4 bg-slate-950 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl flex items-center justify-center gap-3 italic">
+                       <i className="fas fa-camera"></i><span>Capture</span>
                     </button>
                   </>
                 )}
@@ -468,14 +399,15 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         </div>
       )}
 
+      {/* ISSUE MODAL */}
       {showIssueModal && (
         <div className="fixed inset-0 bg-slate-950/95 z-[200] flex items-center justify-center p-6 backdrop-blur-md animate-fadeIn">
-           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl border border-white/5 relative overflow-hidden">
+           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl border border-white/5">
               <h3 className="text-2xl font-black text-slate-900 mb-2 uppercase italic tracking-tighter leading-none">Log Fault</h3>
-              <textarea value={issueDetails} onChange={e => setIssueDetails(e.target.value)} placeholder="Describe the system failure..." className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 focus:border-rose-500 outline-none font-bold text-xs min-h-[160px] resize-none italic" />
+              <textarea value={issueDetails} onChange={e => setIssueDetails(e.target.value)} placeholder="Describe the failure..." className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 focus:border-rose-500 outline-none font-bold text-xs min-h-[160px] resize-none italic" />
               <div className="grid grid-cols-2 gap-4 mt-8">
-                 <button onClick={() => setShowIssueModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px] tracking-widest italic">Cancel</button>
-                 <button onClick={() => { if(currentTask) { finalizeEntry(currentTask, "Issue", issueDetails, ""); setShowIssueModal(false); setIssueDetails(''); setCurrentTask(null); }}} className="bg-rose-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all italic shadow-2xl">Confirm Fault</button>
+                 <button onClick={() => setShowIssueModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px] italic">Cancel</button>
+                 <button onClick={() => { if(currentTask) { finalizeEntry(currentTask, "Issue", issueDetails, ""); setShowIssueModal(false); setIssueDetails(''); setCurrentTask(null); }}} className="bg-rose-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-2xl">Confirm Fault</button>
               </div>
            </div>
         </div>
