@@ -3,17 +3,17 @@ import { WEB_APP_URL } from '../constants';
 
 const safeFetch = async (url: string, options?: RequestInit, retries = 2): Promise<any> => {
   const fetchOptions: RequestInit = {
+    method: 'GET',
     ...options,
-    redirect: 'follow',
-    cache: 'no-cache',
   };
 
   try {
     const separator = url.includes('?') ? '&' : '?';
     const cacheBustedUrl = `${url}${separator}cb=${Date.now()}`;
+    
     const response = await fetch(cacheBustedUrl, fetchOptions);
     
-    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status} at ${url}`);
     
     const contentType = response.headers.get("content-type");
     if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -22,18 +22,19 @@ const safeFetch = async (url: string, options?: RequestInit, retries = 2): Promi
       return json;
     } else {
       const text = await response.text();
-      if (text.includes("<html") && text.includes("goog-logo")) {
-        throw new Error("Access Denied: Re-deploy Web App as 'Anyone'.");
+      // Handle Google Login redirection or script errors returned as HTML
+      if (text.includes("<html") && (text.includes("goog-logo") || text.includes("Service Login"))) {
+        throw new Error("Access Denied: Ensure the Google Script is deployed as 'Anyone' and accessible.");
       }
       return text;
     }
   } catch (error) {
     if (retries > 0) {
-      console.warn(`Retrying fetch (${retries} left)...`, url);
-      await new Promise(res => setTimeout(res, 1000));
+      console.warn(`Retrying fetch (${retries} left) for: ${url}`);
+      await new Promise(res => setTimeout(res, 1500));
       return safeFetch(url, options, retries - 1);
     }
-    console.error("Fetch Error:", error);
+    console.error(`Fetch failure for ${url}:`, error);
     throw error;
   }
 };
@@ -45,6 +46,8 @@ export const postAction = async (formData: FormData): Promise<void> => {
       params.append(key, String(value));
     });
 
+    // Note: mode 'no-cors' is used for Apps Script POSTs because GAS redirects (302) 
+    // to a different domain (googleusercontent) which often lacks CORS headers on the 302 response.
     await fetch(WEB_APP_URL, { 
       method: 'POST', 
       body: params, 

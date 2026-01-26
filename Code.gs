@@ -38,6 +38,8 @@ function initializeSheets(ss) {
 
 function doGet(e) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  initializeSheets(ss); // Ensure backend is ready
+  
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').toLowerCase().trim();
   const category = (params.category || 'AC').toUpperCase().trim();
@@ -145,6 +147,8 @@ function doGet(e) {
 
 function doPost(e) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  initializeSheets(ss); // Ensure backend is ready
+  
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').toLowerCase().trim();
   const category = (params.category || 'AC').toUpperCase().trim();
@@ -317,7 +321,7 @@ function doPost(e) {
         const dToolSheet = ss.getSheetByName('Master_Tools');
         const dTools = dToolSheet.getDataRange().getValues();
         for (let i = dTools.length - 1; i >= 1; i--) {
-          if (String(dTools[i][0]).toUpperCase() === category && dTools[i][1] === params.name) {
+          if (String(dToolSheet[i][0]).toUpperCase() === category && dToolSheet[i][1] === params.name) {
             dToolSheet.deleteRow(i + 1);
             break;
           }

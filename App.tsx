@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Asset, Ticket, AppTab, StatsResponse, FMCategory, CategoryKey, GlobalStatsResponse } from './types.ts';
 import { fetchAssets, fetchStats, fetchGlobalStats } from './services/api.ts';
@@ -61,20 +60,20 @@ const App: React.FC = () => {
   }, []);
 
   const refreshData = useCallback(async (isSilent = false) => {
-    if (screen === 'landing' || screen === 'category-hub') {
-      // Still need global stats for CategoryHub even if not primary view
-      const globalData = await fetchGlobalStats();
-      setGlobalStats(globalData);
-      return;
-    }
-    
-    if (!isSilent) setIsLoading(true);
     try {
+      if (screen === 'landing' || screen === 'category-hub') {
+        const globalData = await fetchGlobalStats();
+        if (globalData) setGlobalStats(globalData);
+        setConnError(false);
+        return;
+      }
+      
+      if (!isSilent) setIsLoading(true);
+
       if (screen === 'global-dashboard' || currentCategory.id === 'seating') {
         const globalData = await fetchGlobalStats();
-        setGlobalStats(globalData);
+        if (globalData) setGlobalStats(globalData);
       } else {
-        setGlobalStats(null);
         const [assetList, statData] = await Promise.all([
           fetchAssets(currentCategory.id),
           fetchStats(currentCategory.id, new Date().toISOString())
@@ -92,30 +91,31 @@ const App: React.FC = () => {
         }
         prevTicketCount.current = newTickets.length;
 
-        setAssets(assetList);
+        setAssets(assetList || []);
         setTickets(newTickets);
         setStats(statData);
       }
       setConnError(false);
     } catch (error) {
-      console.error("Data refresh failed", error);
+      console.error("Data refresh lifecycle error:", error);
       setConnError(true);
-      if (!isSilent) showToast("Cloud Connect Lost");
+      if (!isSilent) showToast("Cloud Connection Error");
     } finally {
       if (!isSilent) setIsLoading(false);
     }
   }, [audioEnabled, currentCategory, screen]);
 
   useEffect(() => {
-    if (screen !== 'landing' && screen !== 'category-hub') {
-      refreshData();
-      const interval = setInterval(() => refreshData(true), 15000); 
-      return () => clearInterval(interval);
-    } else {
-       // Refresh global stats occasionally on hub
-       refreshData(true);
-    }
-  }, [screen, refreshData, currentCategory]);
+    // Initial load
+    refreshData();
+    
+    // Interval management
+    const interval = setInterval(() => {
+      refreshData(true);
+    }, 20000); // 20 seconds is safer for GAS rate limits
+
+    return () => clearInterval(interval);
+  }, [screen, refreshData, currentCategory.id]);
 
   const toggleAttendance = (tech: string) => {
     if (currentCategory.id === 'electrical') {
@@ -158,6 +158,13 @@ const App: React.FC = () => {
         <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] glass-panel px-4 py-1.5 rounded-full shadow-lg border border-indigo-50 flex items-center gap-2 animate-fadeIn">
            <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
            <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Syncing Hub...</span>
+        </div>
+      )}
+
+      {connError && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] bg-rose-50 px-4 py-1.5 rounded-full shadow-lg border border-rose-100 flex items-center gap-2 animate-fadeIn">
+           <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>
+           <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest">Offline / Sync Error</span>
         </div>
       )}
 

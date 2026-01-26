@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Asset, Ticket, CategoryKey } from '../types.ts';
 import { postAction, updateAssetStatus } from '../services/api.ts';
@@ -114,7 +113,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
       fd.append('assignedTech', assignee);
       fd.append('status', finalStatus);
 
-      showToast("Dispatching Specialist...");
+      showToast("Raising Issue...");
       await postAction(fd);
       
       if (category === 'ac' && foundAsset) {
@@ -170,8 +169,8 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
         <div><p className={`text-[7px] font-black uppercase tracking-[0.3em] text-slate-500 mb-1 italic`}>{category.toUpperCase()} Force Control</p><h2 className="text-2xl font-extrabold text-slate-900 tracking-tighter leading-none italic uppercase">Deployment Ledger</h2></div>
         <div className="flex gap-2">
            <button onClick={() => setIsModalOpen(true)} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-2xl hover:bg-black transition-all flex items-center gap-4 group hover:scale-105 active:scale-95">
-             <span className="italic">Log Deployment Failure</span>
-             <i className="fas fa-plus text-xs animate-pulse"></i>
+             <span className="italic">Raise Issue</span>
+             <i className="fas fa-exclamation-circle text-xs animate-pulse"></i>
            </button>
         </div>
       </div>
@@ -211,7 +210,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/95 z-[300] flex items-center justify-center p-4 backdrop-blur-2xl animate-fadeIn">
           <div className="bg-white w-full max-w-md rounded-2xl p-8 shadow-2xl border border-white/5 relative overflow-hidden">
-             <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-extrabold text-slate-900 tracking-tighter uppercase leading-none italic">Deployment Entry</h3><p className="text-[7px] font-bold text-slate-400 uppercase mt-1.5 tracking-[0.3em]">Operational Protocol</p></div><button onClick={() => setIsModalOpen(false)} className="w-9 h-9 bg-slate-50 rounded-lg text-slate-300 shadow-inner flex items-center justify-center active:scale-90"><i className="fas fa-times text-base"></i></button></div>
+             <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-extrabold text-slate-900 tracking-tighter uppercase leading-none italic">Raise Issue</h3><p className="text-[7px] font-bold text-slate-400 uppercase mt-1.5 tracking-0.3em">Operational Protocol</p></div><button onClick={() => setIsModalOpen(false)} className="w-9 h-9 bg-slate-50 rounded-lg text-slate-300 shadow-inner flex items-center justify-center active:scale-90"><i className="fas fa-times text-base"></i></button></div>
              <div className="space-y-4">
                 
                 {/* Protocol Selection */}
@@ -276,11 +275,11 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                   </div>
                 )}
 
-                <div className="bg-slate-50 p-4 rounded-xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all"><label className="block text-[7px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Fault Narrative</label><textarea value={faultDesc} onChange={e => setFaultDesc(e.target.value)} rows={2} className="w-full bg-transparent font-bold text-sm outline-none placeholder:text-slate-200 resize-none italic" placeholder="Describe your issue..." /></div>
+                <div className="bg-slate-50 p-4 rounded-xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all"><label className="block text-[7px] font-black text-slate-400 uppercase mb-2 ml-1 tracking-widest italic">Issue Narrative</label><textarea value={faultDesc} onChange={e => setFaultDesc(e.target.value)} rows={2} className="w-full bg-transparent font-bold text-sm outline-none placeholder:text-slate-200 resize-none italic" placeholder="Describe the system issue..." /></div>
                 
                 <button onClick={handleDispatch} disabled={!isDispatchValid()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-[10px] shadow-2xl active:scale-95 transition-all disabled:opacity-30 uppercase tracking-[0.2em] italic flex items-center justify-center gap-3">
                    {isSubmitting ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-paper-plane text-teal-400"></i>}
-                   <span>{isSubmitting ? 'Syncing...' : 'Authorize Dispatch'}</span>
+                   <span>{isSubmitting ? 'Syncing...' : 'Raise Issue'}</span>
                 </button>
              </div>
           </div>

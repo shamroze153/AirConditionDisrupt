@@ -49,9 +49,8 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
     const total = tickets.length;
     const resolved = tickets.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status)).length;
     const pending = total - resolved;
-    const uptime = total > 0 ? parseFloat(((resolved / total) * 100).toFixed(1)) : 100;
 
-    return { total, resolved, pending, uptime };
+    return { total, resolved, pending };
   }, [tickets]);
 
   // Yearly Charts Logic
@@ -122,12 +121,11 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
     <div className="p-4 md:p-10 space-y-12 md:space-y-16 animate-fadeIn max-w-[1600px] mx-auto pb-32">
       
       {/* 1. TOP KPI STRIP */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-8">
         {[
           { label: 'Complaints Launched', val: kpiMetrics.total, icon: 'file-invoice', color: 'indigo' },
           { label: 'Complaints Resolved', val: kpiMetrics.resolved, icon: 'check-double', color: 'emerald' },
-          { label: 'Work In Progress', val: kpiMetrics.pending, icon: 'clock', color: 'amber' },
-          { label: 'Active Facilities Uptime', val: `${kpiMetrics.uptime}%`, icon: 'shield-alt', color: 'teal' }
+          { label: 'Work In Progress', val: kpiMetrics.pending, icon: 'clock', color: 'amber' }
         ].map((kpi, i) => (
           <div key={i} className="bg-white p-6 md:p-10 rounded-[2rem] border border-slate-100 shadow-sm group hover:shadow-xl transition-all relative overflow-hidden">
             <div className="flex justify-between items-start mb-4 md:mb-8">
@@ -202,7 +200,7 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
                     <div className="relative w-full flex justify-center items-end h-full">
                        <div className="w-full bg-emerald-100 rounded-t-lg transition-all group-hover/over:bg-emerald-600 group-hover/over:shadow-lg" style={{ height: `${Math.max(height, 8)}%` }}></div>
                        {d.avgResolution > 0 && (
-                         <div className="absolute -top-8 bg-slate-950 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xl opacity-0 group-hover/over:opacity-100 transition-all">
+                         <div className="absolute -top-8 bg-slate-950 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-2xl opacity-0 group-hover/over:opacity-100 transition-all">
                             {d.avgResolution}d
                          </div>
                        )}
@@ -244,7 +242,7 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
         </div>
       </section>
 
-      {/* 3. SEATING & OCCUPANCY SECTION */}
+      {/* 3. SEATING & OCCUPANCY SECTION - ENHANCED WITH PERCENTAGES */}
       <section className="space-y-8">
         <div className="flex items-center gap-6">
            <div className="h-px flex-1 bg-slate-200"></div>
@@ -260,24 +258,27 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
              <div className="text-center lg:text-left space-y-6">
                 <div>
                    <h4 className="text-2xl md:text-4xl font-black text-white uppercase italic tracking-tighter leading-none mb-4">Seating Pulse Analytics</h4>
-                   <p className="text-[10px] md:text-xs font-black text-teal-400/60 uppercase tracking-[0.4em] italic">Full Facility Capacity Graphical View</p>
+                   <p className="text-[10px] md:text-xs font-black text-teal-400/60 uppercase tracking-[0.4em] italic">Graphical Distribution & Percentage Flow</p>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 max-w-md">
                    {[
-                     { label: 'Occupied', val: seatingStats.oCount, pct: seatingStats.occupied, color: 'bg-teal-500' },
-                     { label: 'Vacant', val: seatingStats.vCount, pct: seatingStats.vacant, color: 'bg-emerald-500' },
-                     { label: 'Temp Progress', val: seatingStats.tCount, pct: seatingStats.temp, color: 'bg-purple-500' },
-                     { label: 'Maintenance', val: seatingStats.mCount, pct: seatingStats.ooo, color: 'bg-slate-500' }
+                     { label: 'Occupied', val: seatingStats.oCount, pct: seatingStats.occupied, color: 'bg-orange-500', txtColor: 'text-orange-400' },
+                     { label: 'Vacant (Available)', val: seatingStats.vCount, pct: seatingStats.vacant, color: 'bg-teal-500', txtColor: 'text-teal-400' },
+                     { label: 'Temp Progress', val: seatingStats.tCount, pct: seatingStats.temp, color: 'bg-purple-500', txtColor: 'text-purple-400' },
+                     { label: 'Maintenance', val: seatingStats.mCount, pct: seatingStats.ooo, color: 'bg-slate-500', txtColor: 'text-slate-400' }
                    ].map(item => (
-                     <div key={item.label} className="bg-white/5 p-4 md:p-6 rounded-2xl border border-white/5 backdrop-blur-md">
+                     <div key={item.label} className="bg-white/5 p-4 md:p-6 rounded-2xl border border-white/5 backdrop-blur-md text-left">
                         <div className="flex items-center gap-3 mb-2">
                            <div className={`w-2 h-2 rounded-full ${item.color}`}></div>
-                           <span className="text-[9px] font-black text-white/40 uppercase italic tracking-widest">{item.label}</span>
+                           <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">{item.label}</span>
                         </div>
-                        <div className="flex items-baseline gap-2">
-                           <span className="text-2xl md:text-3xl font-black text-white italic tracking-tighter leading-none">{item.val}</span>
-                           <span className="text-[10px] font-bold text-white/20 uppercase">{item.pct}%</span>
+                        <div className="flex flex-col">
+                           <div className="flex items-baseline gap-2">
+                             <span className="text-2xl md:text-3xl font-black text-white italic tracking-tighter leading-none">{item.val}</span>
+                             <span className="text-[9px] font-bold text-white/20 uppercase">Units</span>
+                           </div>
+                           <span className={`text-[12px] font-black ${item.txtColor} uppercase tracking-widest mt-1 italic`}>{item.pct}% Ratio</span>
                         </div>
                      </div>
                    ))}
@@ -287,29 +288,51 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
              <div className="relative w-64 h-64 md:w-[450px] md:h-[450px] flex items-center justify-center">
                <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 filter drop-shadow-[0_0_20px_rgba(20,184,166,0.2)]">
                  <circle cx="50" cy="50" r="42" fill="transparent" stroke="#0f172a" strokeWidth="12" />
+                 {/* Available/Vacant Segment */}
                  <circle 
                    cx="50" cy="50" r="42" 
                    fill="transparent" 
                    stroke="#14b8a6" 
                    strokeWidth="12" 
-                   strokeDasharray={`${seatingStats.occupied * 2.63} 263.8`}
+                   strokeDasharray={`${seatingStats.vacant * 2.63} 263.8`}
                    strokeLinecap="round"
                    className="transition-all duration-1000 ease-out"
                  />
+                 {/* Occupied Segment */}
+                 <circle 
+                   cx="50" cy="50" r="42" 
+                   fill="transparent" 
+                   stroke="#f97316" 
+                   strokeWidth="12" 
+                   strokeDasharray={`${seatingStats.occupied * 2.63} 263.8`}
+                   strokeDashoffset={`-${seatingStats.vacant * 2.63}`}
+                   strokeLinecap="round"
+                   className="transition-all duration-1000 ease-out"
+                 />
+                 {/* Temp Segment */}
                  <circle 
                    cx="50" cy="50" r="42" 
                    fill="transparent" 
                    stroke="#a855f7" 
                    strokeWidth="12" 
                    strokeDasharray={`${seatingStats.temp * 2.63} 263.8`}
-                   strokeDashoffset={`-${seatingStats.occupied * 2.63}`}
+                   strokeDashoffset={`-${(seatingStats.vacant + seatingStats.occupied) * 2.63}`}
                    strokeLinecap="round"
                    className="transition-all duration-1000 ease-out"
                  />
                </svg>
                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-4xl md:text-8xl font-black italic text-white tracking-tighter leading-none">{seatingStats.total}</span>
-                  <span className="text-[9px] md:text-[11px] font-black text-teal-400 uppercase tracking-[0.5em] mt-2 italic">Global Registry</span>
+                  <span className="text-5xl md:text-8xl font-black italic text-white tracking-tighter leading-none">{seatingStats.total}</span>
+                  <div className="flex flex-col items-center gap-1 md:gap-2 mt-2 md:mt-4">
+                     <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                        <span className="text-[10px] md:text-sm font-black text-white uppercase italic tracking-widest">Occ: {seatingStats.occupied}%</span>
+                     </div>
+                     <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-teal-500 rounded-full"></div>
+                        <span className="text-[10px] md:text-sm font-black text-white uppercase italic tracking-widest">Avail: {seatingStats.vacant}%</span>
+                     </div>
+                  </div>
                </div>
              </div>
            </div>

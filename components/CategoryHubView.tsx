@@ -37,13 +37,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   const hardFM = FM_CATEGORIES.filter(c => c.group === 'Hard FM');
   const softFM = FM_CATEGORIES.filter(c => c.group === 'Soft FM');
 
-  // Logic for live uptime calculation
-  const liveUptime = useMemo(() => {
-    if (!tickets || tickets.length === 0) return "100";
-    const resolved = tickets.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician'].includes(t.status)).length;
-    return ((resolved / tickets.length) * 100).toFixed(1);
-  }, [tickets]);
-
   // Logic for cascading selects in Electrical/GM (Location-based)
   const campuses = Object.keys(CAMPUS_ROOMS);
   
@@ -151,7 +144,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
       await postAction(fd);
       setReportModal(false);
-      alert(`Failure Protocol Initialized: ${selectedCat.name} Incident Logged (${formData.complaintType}). Assigned to: ${finalAssigned}`);
+      alert(`Issue Raised: ${selectedCat.name} Incident Logged (${formData.complaintType}). Assigned to: ${finalAssigned}`);
     } catch (e) {
       console.error(e);
       alert("Transmission Failure. Incident not logged.");
@@ -191,8 +184,8 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
             className="bg-slate-950 text-white px-12 py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.4em] shadow-2xl flex items-center gap-6 hover:scale-[1.03] active:scale-95 transition-all group overflow-hidden relative"
           >
             <div className="absolute inset-0 bg-indigo-600 opacity-0 group-hover:opacity-10 transition-opacity"></div>
-            <i className="fas fa-exclamation-triangle text-amber-400 animate-pulse text-lg"></i>
-            <span className="italic">Log Failure Protocol</span>
+            <i className="fas fa-exclamation-circle text-amber-400 animate-pulse text-lg"></i>
+            <span className="italic">Raise Issue</span>
             <div className="w-8 h-8 bg-white/10 rounded-xl flex items-center justify-center group-hover:rotate-90 transition-transform">
                <i className="fas fa-plus text-[10px]"></i>
             </div>
@@ -222,10 +215,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                    <p className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.5em] italic">Real-Time Infrastructure Visualization & Merit Stream</p>
                  </div>
                </div>
-               <div className="bg-white/5 border border-white/10 px-8 py-5 rounded-[1.5rem] backdrop-blur-md flex flex-col items-center">
-                 <span className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1 italic">Active Uptime</span>
-                 <span className="text-3xl font-black text-white italic tracking-tighter">{liveUptime}%</span>
-               </div>
              </div>
           </button>
         </section>
@@ -251,7 +240,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
         </section>
       </div>
 
-      {/* SMART COMPLAINT PROTOCOL MODAL */}
+      {/* RAISE ISSUE MODAL */}
       {reportModal && (
         <div className="fixed inset-0 bg-slate-950/98 z-[100] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
           <div className="bg-white w-full max-w-xl rounded-[3.5rem] p-12 shadow-3xl border border-white/5 relative overflow-hidden">
@@ -259,7 +248,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
              
              <div className="flex justify-between items-center mb-10 relative z-10">
                <div>
-                 <h3 className="text-3xl font-black text-slate-900 leading-none italic uppercase tracking-tighter">Failure Protocol</h3>
+                 <h3 className="text-3xl font-black text-slate-900 leading-none italic uppercase tracking-tighter">Raise Issue</h3>
                  <p className="text-[9px] font-bold text-slate-400 uppercase mt-4 tracking-[0.3em] italic">
                     {reportStep === 1 ? 'Phase 1: Identify Asset Category' : `Phase 2: ${selectedCat?.name} Protocol`}
                  </p>
@@ -279,7 +268,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                         </div>
                         <div className="text-left">
                           <span className="text-lg font-black uppercase italic tracking-tighter text-slate-900 block">{cat.name}</span>
-                          <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest block mt-2">Log Failure Protocol</span>
+                          <span className="text-[8px] font-bold text-slate-300 uppercase tracking-widest block mt-2">Raise Issue Protocol</span>
                         </div>
                       </div>
                       <i className="fas fa-arrow-right text-xs text-slate-200 group-hover:text-slate-950 group-hover:translate-x-1 transition-all"></i>
@@ -379,14 +368,14 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
                   <div className="bg-slate-50 p-8 rounded-[2rem] border-2 border-slate-100 focus-within:border-indigo-600 transition-all shadow-inner">
                      <label className="block text-[10px] font-black text-slate-400 uppercase mb-4 tracking-[0.3em] italic ml-1">Incident Narrative</label>
-                     <textarea value={formData.details} onChange={(e) => setFormData({ ...formData, details: e.target.value })} rows={3} className="w-full bg-transparent font-bold text-base outline-none italic uppercase resize-none placeholder:text-slate-200 leading-relaxed" placeholder="Describe the system failure precisely..." />
+                     <textarea value={formData.details} onChange={(e) => setFormData({ ...formData, details: e.target.value })} rows={3} className="w-full bg-transparent font-bold text-base outline-none italic uppercase resize-none placeholder:text-slate-200 leading-relaxed" placeholder="Describe the system issue precisely..." />
                   </div>
 
                   <div className="flex gap-4 pt-6">
                     <button onClick={() => setReportStep(1)} className="flex-1 py-6 rounded-2xl font-black uppercase text-[11px] tracking-widest text-slate-400 italic hover:bg-slate-50 transition-all">Go Back</button>
                     <button onClick={handleSubmitReport} disabled={isSubmitting || !isFormValid()} className="flex-[2] bg-slate-950 text-white py-6 rounded-[1.5rem] font-black uppercase text-[12px] tracking-[0.5em] shadow-2xl active:scale-95 transition-all disabled:opacity-30 italic flex items-center justify-center gap-5">
                       {isSubmitting ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-paper-plane text-teal-400"></i>}
-                      <span>Transmit Protocol</span>
+                      <span>Transmit Issue</span>
                     </button>
                   </div>
                </div>
