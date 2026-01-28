@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FM_CATEGORIES, CAMPUS_ROOMS, TECHNICIANS, ELECTRICAL_TECHNICIANS } from '../constants';
 import { FMCategory, Ticket, Asset } from '../types';
-import { postAction, fetchAssets } from '../services/api.ts';
+import { postAction, fetchAssets, updateAssetStatus } from '../services/api.ts';
 
 interface Props {
   onBack: () => void;
@@ -18,17 +18,16 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   const [selectedCat, setSelectedCat] = useState<FMCategory | null>(null);
   const [isFetchingAssets, setIsFetchingAssets] = useState(false);
   
-  // Metadata for AC lookup
   const [assets, setAssets] = useState<Asset[]>([]);
   
-  // Form State
   const [formData, setFormData] = useState({
     campus: '',
     floor: '',
     location: '',
     details: '',
     tag: '',
-    complaintType: 'Proactive' as 'Proactive' | 'Reactive'
+    complaintType: 'Proactive' as 'Proactive' | 'Reactive',
+    immediateResolve: false
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,24 +36,23 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   const hardFM = FM_CATEGORIES.filter(c => c.group === 'Hard FM');
   const softFM = FM_CATEGORIES.filter(c => c.group === 'Soft FM');
 
-  // Logic for cascading selects in Electrical/GM (Location-based)
-  const campuses = Object.keys(CAMPUS_ROOMS);
+  const campuses = Object.keys(CAMPUS_ROOMS || {});
   
   const floors = useMemo(() => {
-    if (!formData.campus) return [];
-    return Object.keys(CAMPUS_ROOMS[formData.campus] || {});
+    if (!formData.campus || !CAMPUS_ROOMS[formData.campus]) return [];
+    return Object.keys(CAMPUS_ROOMS[formData.campus]);
   }, [formData.campus]);
 
   const locations = useMemo(() => {
-    if (!formData.campus || !formData.floor) return [];
-    return CAMPUS_ROOMS[formData.campus][formData.floor] || [];
+    if (!formData.campus || !formData.floor || !CAMPUS_ROOMS[formData.campus]?.[formData.floor]) return [];
+    return CAMPUS_ROOMS[formData.campus][formData.floor];
   }, [formData.campus, formData.floor]);
 
   const handleOpenReport = () => {
     setReportModal(true);
     setReportStep(1);
     setFoundAsset(null);
-    setFormData({ campus: '', floor: '', location: '', details: '', tag: '', complaintType: 'Proactive' });
+    setFormData({ campus: '', floor: '', location: '', details: '', tag: '', complaintType: 'Proactive', immediateResolve: false });
   };
 
   const handleSelectReportCat = async (cat: FMCategory) => {
@@ -64,7 +62,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       setIsFetchingAssets(true);
       try {
         const list = await fetchAssets(cat.id);
-        setAssets(list);
+        setAssets(list || []);
       } catch (e) {
         console.error("Registry fetch failed", e);
       } finally {
@@ -77,15 +75,14 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
     const searchVal = val.trim().toLowerCase();
     setFormData(prev => ({ ...prev, tag: val }));
     
-    if (!searchVal || assets.length === 0) {
+    if (!searchVal || !assets.length) {
       setFoundAsset(null);
       return;
     }
 
     const asset = assets.find(a => 
       String(a.id).toLowerCase() === searchVal || 
-      String(a.tag || '').toLowerCase() === searchVal ||
-      String(a.tag || '').toLowerCase().includes(searchVal)
+      String(a.tag || '').toLowerCase() === searchVal
     );
     
     setFoundAsset(asset || null);
@@ -93,20 +90,10 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
   const handleSubmitReport = async () => {
     if (!selectedCat || !formData.details) return;
+    if (selectedCat.id === 'ac' && !formData.tag) return;
     
     setIsSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('action', 'complain');
-      fd.append('category', selectedCat.id.toUpperCase());
-      fd.append('complaintType', formData.complaintType);
-      
-      let finalLocation = '';
-      let finalAssetTag = 'N/A';
-      let finalAssigned = 'Unassigned';
-      let finalStatus = 'Open';
-
-      // 1:1:1:1 Dynamic Assignment Engine
       const getDynamicAssignee = (techPool: string[], attendanceMap: Record<string, boolean>, catName: string) => {
         const activeTechs = techPool.filter(t => attendanceMap[t]);
         if (activeTechs.length === 0) return "Unassigned";
@@ -114,7 +101,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
         const load: Record<string, number> = {};
         activeTechs.forEach(t => load[t] = 0);
         
-        tickets.forEach(t => {
+        (tickets || []).forEach(t => {
           if (String(t.category).toUpperCase() === catName.toUpperCase() && 
               !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)) {
             if (load[t.assignedTo] !== undefined) load[t.assignedTo]++;
@@ -123,50 +110,55 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
         
         const minLoad = Math.min(...Object.values(load));
         const candidates = activeTechs.filter(t => load[t] === minLoad);
-        return candidates[0];
+        return candidates[0] || activeTechs[0];
       };
 
+      const finalTag = selectedCat.id === 'ac' ? formData.tag : 'N/A';
+      const fd = new FormData();
+      fd.append('action', 'complain');
+      fd.append('category', selectedCat.id.toUpperCase());
+      fd.append('complaintType', formData.complaintType);
+      
+      let finalLocation = '';
+      let finalAssigned = 'Unassigned';
+      let finalStatus = formData.immediateResolve ? 'Completed' : 'Open';
+
       if (selectedCat.id === 'ac') {
-        finalAssetTag = foundAsset?.tag || formData.tag;
-        finalLocation = foundAsset ? `${foundAsset.campus} - ${foundAsset.floor} - ${foundAsset.room}` : 'AC Direct Entry';
-        finalAssigned = getDynamicAssignee(TECHNICIANS, acAttendance, 'AC');
+        const asset = assets.find(a => a.tag === finalTag || String(a.id) === finalTag);
+        finalLocation = asset ? `${asset.campus} - ${asset.floor} - ${asset.room}` : 'AC Direct Entry';
+        finalAssigned = formData.immediateResolve ? 'System Hub' : getDynamicAssignee(TECHNICIANS, acAttendance, 'AC');
       } else if (selectedCat.id === 'electrical') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
         finalAssigned = getDynamicAssignee(ELECTRICAL_TECHNICIANS, elecAttendance, 'ELECTRICAL');
       } else if (selectedCat.id === 'handyman') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
-        finalAssigned = 'Sajid'; // Single tech for GM domain
+        finalAssigned = 'Sajid';
       } else {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
       }
       
-      if (finalAssigned === "Unassigned") finalStatus = "Pending Assignment";
+      if (finalAssigned === "Unassigned" && !formData.immediateResolve) finalStatus = "Pending Assignment";
 
-      fd.append('assetTag', finalAssetTag);
+      fd.append('assetTag', finalTag);
       fd.append('location', finalLocation);
       fd.append('details', formData.details);
       fd.append('assignedTech', finalAssigned);
       fd.append('status', finalStatus);
 
       await postAction(fd);
+
+      if (formData.immediateResolve && selectedCat.id === 'ac' && finalTag !== 'N/A') {
+        await updateAssetStatus(selectedCat.id as any, finalTag, 'Active');
+      } else if (!formData.immediateResolve && selectedCat.id === 'ac' && finalTag !== 'N/A') {
+        await updateAssetStatus(selectedCat.id as any, finalTag, 'Maintenance');
+      }
+
       setReportModal(false);
-      alert(`Issue Raised: Assigned to ${finalAssigned}`);
     } catch (e) {
       console.error(e);
       alert("Transmission Failure.");
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const isFormValid = () => {
-    const detailValid = formData.details.trim().length > 0;
-    if (!detailValid) return false;
-
-    if (selectedCat?.id === 'ac') {
-      return formData.tag.trim().length > 0;
-    } else {
-      return !!(formData.campus && formData.floor && formData.location);
     }
   };
 
@@ -247,7 +239,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       {/* RAISE ISSUE MODAL */}
       {reportModal && (
         <div className="fixed inset-0 bg-slate-950/98 z-[100] flex items-center justify-center p-3 md:p-6 backdrop-blur-3xl animate-fadeIn">
-          <div className="bg-white w-full max-w-xl rounded-[2rem] md:rounded-[3.5rem] p-5 md:p-12 shadow-3xl border border-white/5 relative overflow-hidden flex flex-col max-h-[85dvh] md:max-h-[90dvh]">
+          <div className="bg-white w-full max-w-xl rounded-[2rem] md:rounded-[3.5rem] p-5 md:p-12 shadow-3xl border border-white/5 relative overflow-hidden flex flex-col max-h-[90dvh]">
              <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-indigo-600/5 blur-[80px]"></div>
              
              <div className="flex justify-between items-center mb-5 md:mb-10 relative z-10 shrink-0">
@@ -289,7 +281,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                             <button 
                               key={type}
                               onClick={() => setFormData({...formData, complaintType: type as any})}
-                              className={`px-3 md:px-6 py-1 md:py-2 rounded-md md:rounded-lg text-[7px] md:text-[8px] font-black uppercase tracking-widest transition-all ${formData.complaintType === type ? 'bg-slate-900 text-white shadow-md' : 'text-slate-300 hover:text-slate-500'}`}
+                              className={`px-3 md:px-6 py-1 md:py-2 rounded-md md:rounded-lg text-[7px] md:text-[8px] font-black uppercase tracking-widest transition-all ${formData.complaintType === type ? 'bg-slate-900 text-white shadow-md' : 'text-slate-300 hover:text-slate-50'}`}
                             >
                               {type}
                             </button>
@@ -299,7 +291,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
                     {selectedCat?.id === 'ac' ? (
                       <div className="bg-slate-50 p-4 md:p-6 rounded-2xl md:rounded-[2rem] border-2 border-slate-100 focus-within:border-indigo-600 transition-all shadow-inner">
-                          <label className="block text-[8px] md:text-[9px] font-black text-slate-400 uppercase mb-2 md:mb-3 ml-1 italic tracking-widest">Asset Identification</label>
+                          <label className="block text-[8px] md:text-[9px] font-black text-slate-400 uppercase mb-2 md:mb-3 ml-1 italic tracking-widest">Asset Identification (Search by ID/Tag)</label>
                           <input 
                             type="text" 
                             autoFocus 
@@ -311,8 +303,12 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                           {foundAsset && (
                             <div className="mt-3 md:mt-4 p-4 md:p-5 bg-white rounded-xl md:rounded-2xl border border-indigo-100 flex justify-between items-center animate-slideDown shadow-sm">
                                <div>
-                                 <p className="text-[7px] md:text-[8px] font-black text-indigo-400 uppercase italic">Registry Match</p>
-                                 <h4 className="font-black text-slate-950 text-[10px] md:text-[13px] italic mt-1 leading-none uppercase">"{foundAsset.room}"</h4>
+                                 <div className="flex items-center gap-2 mb-1">
+                                   <p className="text-[7px] md:text-[8px] font-black text-indigo-400 uppercase italic">Registry Match</p>
+                                   <span className={`text-[6px] px-1.5 py-0.5 rounded font-black uppercase ${foundAsset.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{foundAsset.status}</span>
+                                 </div>
+                                 <h4 className="font-black text-slate-950 text-[10px] md:text-[13px] italic leading-none uppercase">"{foundAsset.room}"</h4>
+                                 <p className="text-[8px] text-slate-300 font-bold uppercase mt-2 italic">{foundAsset.brand} • {foundAsset.cap}T</p>
                                </div>
                                <div className="text-right text-[7px] md:text-[8px] font-bold text-slate-300 uppercase italic">{foundAsset.campus} | {foundAsset.floor}</div>
                             </div>
@@ -356,9 +352,27 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                     )}
 
                     <div className="bg-slate-50 p-4 md:p-8 rounded-2xl md:rounded-[2rem] border-2 border-slate-100 focus-within:border-indigo-600 shadow-inner transition-all">
-                       <label className="block text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-2 md:mb-4 tracking-widest italic ml-1">Incident Brief</label>
+                       <label className="block text-[8px] md:text-[10px] font-black text-slate-400 uppercase mb-2 md:mb-4 tracking-widest italic ml-1">Incident Brief / Remarks</label>
                        <textarea value={formData.details} onChange={(e) => setFormData({ ...formData, details: e.target.value })} rows={3} className="w-full bg-transparent font-bold text-xs md:text-base text-slate-900 outline-none italic uppercase resize-none placeholder:text-slate-200 leading-relaxed" placeholder="Describe findings..." />
                     </div>
+
+                    <button 
+                      onClick={() => setFormData({...formData, immediateResolve: !formData.immediateResolve})}
+                      className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center justify-between group ${formData.immediateResolve ? 'bg-emerald-600 border-emerald-600 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-400'}`}
+                    >
+                       <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-inner ${formData.immediateResolve ? 'bg-white/20' : 'bg-white'}`}>
+                             <i className={`fas fa-check-double text-sm ${formData.immediateResolve ? 'text-white' : 'text-slate-200'}`}></i>
+                          </div>
+                          <div className="text-left">
+                             <p className="text-[10px] font-black uppercase tracking-widest italic leading-none">Execute Immediate Resolution</p>
+                             <p className={`text-[7px] font-bold uppercase mt-1 italic ${formData.immediateResolve ? 'text-white/40' : 'text-slate-300'}`}>Mark as Resolved immediately upon submission</p>
+                          </div>
+                       </div>
+                       <div className={`w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${formData.immediateResolve ? 'border-white bg-white' : 'border-slate-200'}`}>
+                          {formData.immediateResolve && <i className="fas fa-check text-[10px] text-emerald-600"></i>}
+                       </div>
+                    </button>
                  </div>
                )}
              </div>
@@ -369,9 +383,9 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                 ) : (
                   <div className="flex gap-2 md:gap-4">
                     <button onClick={() => setReportStep(1)} className="flex-1 py-3 md:py-6 rounded-xl md:rounded-2xl font-black uppercase text-[8px] md:text-[11px] tracking-widest text-slate-400 italic hover:bg-slate-50 transition-all">Go Back</button>
-                    <button onClick={handleSubmitReport} disabled={isSubmitting || !isFormValid()} className="flex-[2.5] bg-slate-900 text-white py-4 md:py-6 rounded-xl md:rounded-[2rem] font-black uppercase text-[9px] md:text-[12px] tracking-[0.2em] md:tracking-[0.4em] shadow-2xl active:scale-95 transition-all disabled:opacity-30 italic flex items-center justify-center gap-3 md:gap-5">
-                      {isSubmitting ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-paper-plane text-indigo-400"></i>}
-                      <span>{isSubmitting ? 'Transmitting...' : 'Dispatch Protocol'}</span>
+                    <button onClick={handleSubmitReport} disabled={isSubmitting || !formData.details.trim()} className={`flex-[2.5] py-4 md:py-6 rounded-xl md:rounded-[2rem] font-black uppercase text-[9px] md:text-[12px] tracking-[0.2em] md:tracking-[0.4em] shadow-2xl active:scale-95 transition-all disabled:opacity-30 italic flex items-center justify-center gap-3 md:gap-5 ${formData.immediateResolve ? 'bg-emerald-700 text-white' : 'bg-slate-900 text-white'}`}>
+                      {isSubmitting ? <i className="fas fa-circle-notch animate-spin"></i> : <i className={`fas fa-${formData.immediateResolve ? 'shield-check' : 'paper-plane'} ${formData.immediateResolve ? 'text-white' : 'text-indigo-400'}`}></i>}
+                      <span>{isSubmitting ? 'Transmitting...' : formData.immediateResolve ? 'Finalize Protocol' : 'Dispatch Protocol'}</span>
                     </button>
                   </div>
                 )}
@@ -385,13 +399,13 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
 const CategoryCard: React.FC<{ category: FMCategory, onClick: (cat: FMCategory) => void }> = ({ category, onClick }) => (
   <button onClick={() => onClick(category)} className="bg-white p-6 md:p-10 rounded-2xl md:rounded-[3rem] border border-slate-100 group text-left relative overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-sm hover:shadow-xl">
-    <div className={`absolute top-0 right-0 w-32 md:w-48 h-32 md:h-48 bg-${category.color}-500/5 blur-[50px] group-hover:bg-${category.color}-500/10 transition-all duration-700`}></div>
-    <div className={`w-10 h-10 md:w-16 md:h-16 bg-${category.color}-50 text-${category.color}-600 rounded-xl md:rounded-[1.5rem] flex items-center justify-center text-xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all duration-500 mb-6 md:mb-10`}>
-      <i className={`fas fa-${category.icon}`}></i>
+    <div className={`absolute top-0 right-0 w-32 md:w-48 h-32 md:h-48 bg-${category?.color}-500/5 blur-[50px] group-hover:bg-${category?.color}-500/10 transition-all duration-700`}></div>
+    <div className={`w-10 h-10 md:w-16 md:h-16 bg-${category?.color}-50 text-${category?.color}-600 rounded-xl md:rounded-[1.5rem] flex items-center justify-center text-xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all duration-500 mb-6 md:mb-10`}>
+      <i className={`fas fa-${category?.icon}`}></i>
     </div>
     <div>
-      <h3 className="text-sm md:text-2xl font-black text-slate-900 tracking-tighter uppercase leading-none italic">{category.name}</h3>
-      <p className="text-[7px] md:text-[9px] text-slate-300 font-black uppercase tracking-widest md:tracking-[0.6em] mt-2 md:mt-4 italic">{category.group}</p>
+      <h3 className="text-sm md:text-2xl font-black text-slate-900 tracking-tighter uppercase leading-none italic">{category?.name}</h3>
+      <p className="text-[7px] md:text-[9px] text-slate-300 font-black uppercase tracking-widest md:tracking-[0.6em] mt-2 md:mt-4 italic">{category?.group}</p>
     </div>
     <div className="mt-8 md:mt-12 flex items-center justify-between border-t border-slate-50 pt-4 md:pt-6 opacity-40 group-hover:opacity-100 transition-opacity">
        <span className="text-[7px] md:text-[8px] font-black text-slate-400 uppercase tracking-widest italic">Synchronize</span>

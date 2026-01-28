@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, StatsResponse, CategoryKey, Tool } from '../types.ts';
-import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES } from '../constants.ts';
-import { submitDemand, postAction, fetchTools, updateTool, addTool, deleteTool } from '../services/api.ts';
+import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES, TECHNICIANS, ELECTRICAL_TECHNICIANS } from '../constants.ts';
+import { submitDemand, postAction, fetchTools, updateTool, addTool, deleteTool, updateAssetStatus } from '../services/api.ts';
 
 interface Props {
   category: CategoryKey;
@@ -26,7 +26,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const activeTechList = CATEGORY_TECHS[category] || [];
   
   const allAvailableTechs = useMemo(() => {
-    return [...CATEGORY_TECHS.ac, ...CATEGORY_TECHS.electrical, ...CATEGORY_TECHS.handyman];
+    return [...(CATEGORY_TECHS.ac || []), ...(CATEGORY_TECHS.electrical || []), ...(CATEGORY_TECHS.handyman || [])];
   }, []);
 
   const [resolveTicket, setResolveTicket] = useState<Ticket | null>(null);
@@ -35,8 +35,34 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const [resolveRemarks, setResolveRemarks] = useState('');
   const [gasUsedYesNo, setGasUsedYesNo] = useState<'Yes' | 'No'>('No');
   const [gasAmount, setGasAmount] = useState<string>('0');
-  const [selectedGasType, setSelectedGasType] = useState<string>(GAS_TYPES[0].name);
+  const [selectedGasType, setSelectedGasType] = useState<string>(GAS_TYPES[0]?.name || '');
   const [isResolving, setIsResolving] = useState(false);
+
+  // Tech Era Raise Issue States
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [issueFormData, setIssueFormData] = useState({
+    campus: '',
+    floor: '',
+    details: '',
+    selectedTags: [] as string[],
+    complaintType: 'Proactive' as 'Proactive' | 'Reactive',
+    immediateResolve: false
+  });
+  const [isSubmittingIssue, setIsSubmittingIssue] = useState(false);
+
+  const acCampuses = useMemo(() => Array.from(new Set(assets.map(a => a.campus))).filter(Boolean).sort(), [assets]);
+  const acFloors = useMemo(() => {
+    if (!issueFormData.campus) return [];
+    return Array.from(new Set(assets.filter(a => a.campus === issueFormData.campus).map(a => a.floor))).filter(Boolean).sort();
+  }, [assets, issueFormData.campus]);
+  const floorAssets = useMemo(() => {
+    if (!issueFormData.campus || !issueFormData.floor) return [];
+    return assets.filter(a => 
+      a.campus === issueFormData.campus && 
+      a.floor === issueFormData.floor && 
+      ['Active', 'Maintenance'].includes(a.status)
+    );
+  }, [assets, issueFormData.campus, issueFormData.floor]);
 
   const [serverTools, setServerTools] = useState<Tool[]>([]);
   const [isLoadingTools, setIsLoadingTools] = useState(false);
@@ -65,7 +91,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
 
   const techProfileData = useMemo(() => {
     if (!selectedTech) return { active: [], resolved: [], merit: 0, demerit: 0, compliance: { d: 0, m: 0, q: 0, zone: 0 } };
-    const all = tickets.filter(t => t.assignedTo?.trim().toLowerCase() === selectedTech.trim().toLowerCase());
+    const all = (tickets || []).filter(t => t.assignedTo?.trim().toLowerCase() === selectedTech.trim().toLowerCase());
     const techLogs = (stats?.performanceLogs || []).filter(l => l.tech === selectedTech && String(l.category || '').toUpperCase() === category.toUpperCase());
     const merit = techLogs.filter(l => l.points > 0).reduce((a, b) => a + b.points, 0);
     const demerit = Math.abs(techLogs.filter(l => l.points < 0).reduce((a, b) => a + b.points, 0));
@@ -136,6 +162,62 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     finally { setIsResolving(false); }
   };
 
+  const handleTechEraIssueSubmit = async () => {
+    if (issueFormData.selectedTags.length === 0 || !issueFormData.details) return;
+    setIsSubmittingIssue(true);
+    try {
+      const getDynamicAssignee = (techPool: string[], attendanceMap: Record<string, boolean>, catName: string) => {
+        const activeTechs = techPool.filter(t => attendanceMap[t]);
+        if (activeTechs.length === 0) return "Unassigned";
+        const load: Record<string, number> = {};
+        activeTechs.forEach(t => load[t] = 0);
+        (tickets || []).forEach(t => {
+          if (String(t.category).toUpperCase() === catName.toUpperCase() && 
+              !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)) {
+            if (load[t.assignedTo] !== undefined) load[t.assignedTo]++;
+          }
+        });
+        const minLoad = Math.min(...Object.values(load));
+        const candidates = activeTechs.filter(t => load[t] === minLoad);
+        return candidates[0];
+      };
+
+      for (const tag of issueFormData.selectedTags) {
+        const fd = new FormData();
+        fd.append('action', 'complain');
+        fd.append('category', category.toUpperCase());
+        fd.append('complaintType', issueFormData.complaintType);
+        
+        const asset = assets.find(a => a.tag === tag);
+        const finalLocation = asset ? `${asset.campus} - ${asset.floor} - ${asset.room}` : 'Tech Era Hub';
+        const finalAssigned = issueFormData.immediateResolve ? 'Field Hub Sync' : getDynamicAssignee(TECHNICIANS, attendance, 'AC');
+        const finalStatus = issueFormData.immediateResolve ? 'Completed' : 'Open';
+
+        fd.append('assetTag', tag);
+        fd.append('location', finalLocation);
+        fd.append('details', issueFormData.details);
+        fd.append('assignedTech', finalAssigned);
+        fd.append('status', finalStatus);
+
+        await postAction(fd);
+
+        if (issueFormData.immediateResolve && tag !== 'N/A') {
+          await updateAssetStatus(category, tag, 'Active');
+        } else if (tag !== 'N/A') {
+          await updateAssetStatus(category, tag, 'Maintenance');
+        }
+      }
+      setShowIssueModal(false);
+      setIssueFormData({ campus: '', floor: '', details: '', selectedTags: [], complaintType: 'Proactive', immediateResolve: false });
+      onRefresh();
+      showToast(`Protocol Executed for ${issueFormData.selectedTags.length} identifiers.`);
+    } catch (e) {
+      showToast("Transmission Error");
+    } finally {
+      setIsSubmittingIssue(false);
+    }
+  };
+
   const handleSaveTool = async () => {
     if (!toolFormData.name || toolFormData.qty === undefined) return;
     setIsSavingTool(true);
@@ -194,6 +276,13 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     setSolvingTechs(prev => prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]);
   };
 
+  const toggleAssetSelection = (tag: string) => {
+    setIssueFormData(prev => ({
+      ...prev,
+      selectedTags: prev.selectedTags.includes(tag) ? prev.selectedTags.filter(t => t !== tag) : [...prev.selectedTags, tag]
+    }));
+  };
+
   const groupedTools: Record<string, Tool[]> = useMemo(() => {
     const filtered = serverTools.filter(t => !toolSearch || t.name.toLowerCase().includes(toolSearch.toLowerCase()));
     if (category !== 'electrical') return { 'General Inventory': filtered };
@@ -226,24 +315,32 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
 
       {view === 'profiles' && (
         <div className="space-y-6">
-          <div className="flex gap-3 overflow-x-auto pb-4 hide-scroll px-1">
-             {activeTechList.map(t => (
-               <button 
-                 key={t} 
-                 onClick={() => toggleMultiSelect(t)} 
-                 className={`group flex items-center gap-4 p-4 rounded-3xl border-2 transition-all min-w-[180px] md:min-w-[220px] ${multiSelectedTechs.includes(t) ? (selectedTech === t ? 'bg-slate-950 border-slate-950 shadow-2xl scale-105' : 'bg-slate-800 border-slate-800 shadow-xl') : 'bg-white border-slate-100 opacity-60 shadow-sm'}`}
-               >
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl italic ${multiSelectedTechs.includes(t) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-300'}`}>
-                    {t[0]}
-                  </div>
-                  <div className="text-left">
-                    <p className={`text-[10px] font-black uppercase italic ${multiSelectedTechs.includes(t) ? 'text-white' : 'text-slate-900'}`}>{t}</p>
-                    <p className={`text-[7px] font-bold uppercase mt-1 italic ${multiSelectedTechs.includes(t) ? 'text-white/40' : 'text-slate-300'}`}>
-                      {attendance[t] ? '● Online' : '○ Offline'}
-                    </p>
-                  </div>
+          <div className="flex justify-between items-center px-2">
+             <div className="flex gap-3 overflow-x-auto pb-4 hide-scroll flex-1">
+                {activeTechList.map(t => (
+                  <button 
+                    key={t} 
+                    onClick={() => toggleMultiSelect(t)} 
+                    className={`group flex items-center gap-4 p-4 rounded-3xl border-2 transition-all min-w-[180px] md:min-w-[220px] ${multiSelectedTechs.includes(t) ? (selectedTech === t ? 'bg-slate-950 border-slate-950 shadow-2xl scale-105' : 'bg-slate-800 border-slate-800 shadow-xl') : 'bg-white border-slate-100 opacity-60 shadow-sm'}`}
+                  >
+                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl italic ${multiSelectedTechs.includes(t) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-300'}`}>
+                       {t[0]}
+                     </div>
+                     <div className="text-left">
+                       <p className={`text-[10px] font-black uppercase italic ${multiSelectedTechs.includes(t) ? 'text-white' : 'text-slate-900'}`}>{t}</p>
+                       <p className={`text-[7px] font-bold uppercase mt-1 italic ${multiSelectedTechs.includes(t) ? 'text-white/40' : 'text-slate-300'}`}>
+                         {attendance[t] ? '● Online' : '○ Offline'}
+                       </p>
+                     </div>
+                  </button>
+                ))}
+             </div>
+             {category === 'ac' && (
+               <button onClick={() => setShowIssueModal(true)} className="ml-4 bg-slate-900 text-white px-8 py-4 rounded-3xl font-black uppercase tracking-widest text-[9px] shadow-2xl flex items-center gap-3 italic hover:scale-105 active:scale-95 transition-all">
+                  <span>Raise Issue</span>
+                  <i className="fas fa-plus-circle text-teal-400"></i>
                </button>
-             ))}
+             )}
           </div>
 
           {selectedTech && (
@@ -326,6 +423,90 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TECH ERA RAISE ISSUE MODAL */}
+      {showIssueModal && (
+        <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-3 md:p-6 backdrop-blur-3xl animate-fadeIn">
+          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] md:rounded-[3.5rem] shadow-3xl flex flex-col max-h-[90dvh] overflow-hidden border border-white/10 relative">
+             <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-teal-600/5 blur-[80px]"></div>
+             
+             <div className="p-6 md:p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/20 shrink-0 relative z-10">
+               <div>
+                 <h3 className="text-xl md:text-3xl font-black text-slate-950 leading-none italic uppercase tracking-tighter">Era Deployment</h3>
+                 <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase mt-2 tracking-widest italic">Phase 1: Facility Mapping</p>
+               </div>
+               <button onClick={() => setShowIssueModal(false)} className="w-12 h-12 bg-white rounded-2xl text-slate-300 shadow-inner flex items-center justify-center border border-slate-50"><i className="fas fa-times text-xl"></i></button>
+             </div>
+
+             <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-6 hide-scroll relative z-10">
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 shadow-inner">
+                      <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 italic">Campus Selector</label>
+                      <select value={issueFormData.campus} onChange={e => setIssueFormData({...issueFormData, campus: e.target.value, floor: '', selectedTags: []})} className="w-full bg-transparent font-black text-[11px] outline-none uppercase italic">
+                         <option value="">-- CAMPUS --</option>
+                         {acCampuses.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                   </div>
+                   <div className={`bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 shadow-inner ${!issueFormData.campus ? 'opacity-30' : ''}`}>
+                      <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 italic">Floor Level</label>
+                      <select disabled={!issueFormData.campus} value={issueFormData.floor} onChange={e => setIssueFormData({...issueFormData, floor: e.target.value, selectedTags: []})} className="w-full bg-transparent font-black text-[11px] outline-none uppercase italic">
+                         <option value="">-- FLOOR --</option>
+                         {acFloors.map(f => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                   </div>
+                </div>
+
+                {issueFormData.floor && (
+                  <div className="space-y-4">
+                     <div className="flex justify-between items-center px-2">
+                        <span className="text-[9px] font-black text-slate-400 uppercase italic">Sector Identifiers ({floorAssets.length})</span>
+                        <button onClick={() => setIssueFormData({...issueFormData, selectedTags: issueFormData.selectedTags.length === floorAssets.length ? [] : floorAssets.map(a => a.tag)})} className="text-[8px] font-black text-indigo-600 uppercase italic decoration-indigo-200">Select Complete Sector</button>
+                     </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto hide-scroll pr-1 pb-4">
+                        {floorAssets.length > 0 ? floorAssets.map(a => (
+                          <button key={a.tag} onClick={() => toggleAssetSelection(a.tag)} className={`p-4 rounded-2xl border-2 transition-all flex items-center justify-between group ${issueFormData.selectedTags.includes(a.tag) ? 'bg-slate-900 border-slate-900 shadow-xl' : 'bg-white border-slate-50'}`}>
+                             <div className="text-left">
+                                <p className={`text-[11px] font-black uppercase italic ${issueFormData.selectedTags.includes(a.tag) ? 'text-white' : 'text-slate-900'}`}>{a.tag}</p>
+                                <p className={`text-[8px] font-bold italic mt-1 ${issueFormData.selectedTags.includes(a.tag) ? 'text-white/40' : 'text-slate-300'}`}>{a.brand} | {a.cap}T | {a.room}</p>
+                             </div>
+                             <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${issueFormData.selectedTags.includes(a.tag) ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-200'}`}>
+                                <i className={`fas fa-${issueFormData.selectedTags.includes(a.tag) ? 'check' : 'plus'} text-[10px]`}></i>
+                             </div>
+                          </button>
+                        )) : (
+                          <div className="col-span-2 py-10 text-center opacity-40">
+                             <p className="text-[10px] font-black uppercase italic tracking-widest">No active AC assets found for this floor</p>
+                          </div>
+                        )}
+                     </div>
+                  </div>
+                )}
+
+                <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner">
+                   <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Incident Narrative</label>
+                   <textarea value={issueFormData.details} onChange={e => setIssueFormData({...issueFormData, details: e.target.value})} rows={3} placeholder="Describe the discrepancy..." className="w-full bg-transparent font-bold text-base outline-none uppercase italic resize-none" />
+                </div>
+
+                <button onClick={() => setIssueFormData({...issueFormData, immediateResolve: !issueFormData.immediateResolve})} className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center justify-between group ${issueFormData.immediateResolve ? 'bg-emerald-600 border-emerald-600 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-300'}`}>
+                   <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner ${issueFormData.immediateResolve ? 'bg-white/20' : 'bg-white'}`}><i className="fas fa-check-double text-sm"></i></div>
+                      <div className="text-left">
+                        <p className="text-[10px] font-black uppercase tracking-widest italic leading-none">Execute Direct Resolution</p>
+                        <p className={`text-[7px] font-bold uppercase mt-1 italic ${issueFormData.immediateResolve ? 'text-white/40' : 'text-slate-300'}`}>Bypass pipeline & mark as resolved instantly</p>
+                      </div>
+                   </div>
+                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${issueFormData.immediateResolve ? 'border-white bg-white' : 'border-slate-200'}`}>{issueFormData.immediateResolve && <i className="fas fa-check text-[10px] text-emerald-600"></i>}</div>
+                </button>
+             </div>
+
+             <div className="p-6 md:p-10 border-t border-slate-100 bg-slate-50/30 shrink-0 z-10 relative">
+                <button onClick={handleTechEraIssueSubmit} disabled={isSubmittingIssue || issueFormData.selectedTags.length === 0 || !issueFormData.details.trim()} className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.4em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30">
+                   {isSubmittingIssue ? 'Synchronizing Registry...' : 'Authorize Era Transmission'}
+                </button>
+             </div>
+          </div>
         </div>
       )}
 
@@ -461,7 +642,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                 </div>
                 <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
                   <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Initial Volume</label>
-                  <input type="number" value={toolFormData.qty || 0} onChange={e => setToolFormData({...toolFormData, qty: parseInt(e.target.value) || 0})} className="w-full bg-transparent font-black text-xl outline-none italic" />
+                  <input type="number" value={toolFormData.qty || 0} onChange={e => setToolFormData({...toolFormData, qty: parseInt(e.target.value || '0')})} className="w-full bg-transparent font-black text-xl outline-none italic" />
                 </div>
                 {category === 'electrical' && (
                   <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
