@@ -27,7 +27,6 @@ const App: React.FC = () => {
   
   const [newTicketPulse, setNewTicketPulse] = useState(false);
 
-  // Split attendance for different departments
   const [acAttendance, setAcAttendance] = useState<Record<string, boolean>>(() => {
     const stored = localStorage.getItem('fm_ac_attendance');
     const initial: Record<string, boolean> = {};
@@ -76,7 +75,7 @@ const App: React.FC = () => {
       } else {
         const [assetList, statData] = await Promise.all([
           fetchAssets(currentCategory.id),
-          fetchStats(currentCategory.id, new Date().toISOString())
+          fetchStats(currentCategory.id)
         ]);
         
         const newTickets = statData.complaints || [];
@@ -106,15 +105,14 @@ const App: React.FC = () => {
   }, [audioEnabled, currentCategory, screen]);
 
   useEffect(() => {
-    // Initial load
-    refreshData();
-    
-    // Interval management
+    const timer = setTimeout(() => refreshData(), 100);
     const interval = setInterval(() => {
       refreshData(true);
-    }, 20000); // 20 seconds is safer for GAS rate limits
-
-    return () => clearInterval(interval);
+    }, 20000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [screen, refreshData, currentCategory.id]);
 
   const toggleAttendance = (tech: string) => {
@@ -155,25 +153,16 @@ const App: React.FC = () => {
       {toastMsg && <NotificationToast message={toastMsg} />}
       
       {isLoading && !connError && (
-        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] glass-panel px-4 py-1.5 rounded-full shadow-lg border border-indigo-50 flex items-center gap-2 animate-fadeIn">
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] glass-panel px-4 py-1.5 rounded-full shadow-lg border border-indigo-50 flex items-center gap-2 animate-fadeIn">
            <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
            <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Syncing Hub...</span>
         </div>
       )}
 
       {connError && (
-        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[100] bg-rose-50 px-4 py-1.5 rounded-full shadow-lg border border-rose-100 flex items-center gap-2 animate-fadeIn">
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] bg-rose-50 px-4 py-1.5 rounded-full shadow-lg border border-rose-100 flex items-center gap-2 animate-fadeIn">
            <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>
            <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest">Offline / Sync Error</span>
-        </div>
-      )}
-
-      {newTicketPulse && (
-        <div className="fixed top-8 right-8 z-[200] animate-bounce pointer-events-none">
-           <div className="bg-slate-900 text-white p-3 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-3">
-              <i className="fas fa-rocket text-yellow-400 text-xs"></i>
-              <span className="text-[7px] font-black uppercase tracking-widest">Live Activity</span>
-           </div>
         </div>
       )}
 
@@ -197,7 +186,29 @@ const App: React.FC = () => {
             onBack={() => setScreen('category-hub')} 
             color={currentCategory.color}
           />
-          <div className="flex-1 overflow-y-auto hide-scroll pb-24">
+          
+          {currentCategory.id !== 'seating' && (
+            <div className="bg-white px-4 md:px-6 py-2 border-b border-slate-100 sticky top-[60px] md:top-[68px] z-40 shadow-sm">
+              <div className="max-w-[1400px] mx-auto flex bg-slate-50 p-1 rounded-xl gap-1">
+                {[
+                  { tab: AppTab.DASHBOARD, icon: 'chart-pie', label: 'Dashboard' },
+                  { tab: AppTab.OPS, icon: 'tasks', label: 'Operations' },
+                  { tab: AppTab.TECH, icon: 'user-astronaut', label: currentCategory.id === 'ac' ? 'Tech Era' : 'Tech Hub' }
+                ].map(nav => (
+                  <button 
+                    key={nav.tab}
+                    onClick={() => setActiveTab(nav.tab)}
+                    className={`flex-1 py-2 md:py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === nav.tab ? 'bg-slate-900 text-white shadow-lg scale-[1.02]' : 'text-slate-400 hover:bg-slate-100'}`}
+                  >
+                    <i className={`fas fa-${nav.icon} text-[9px] md:text-[10px]`}></i>
+                    <span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest">{nav.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto hide-scroll pb-20">
             {currentCategory.id === 'seating' ? (
               <SeatingView stats={globalStats} onRefresh={refreshData} />
             ) : (
@@ -238,7 +249,6 @@ const App: React.FC = () => {
               </>
             )}
           </div>
-          {currentCategory.id !== 'seating' && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />}
         </div>
       )}
 
@@ -258,7 +268,7 @@ const App: React.FC = () => {
       {screen === 'global-dashboard' && (
         <div className="h-full flex flex-col animate-fadeIn">
           <Header 
-            title="Disrupt Facilities Management Dashboard" 
+            title="Disrupt FM Global Dashboard" 
             onBack={() => setScreen('category-hub')} 
             color="slate"
           />
@@ -276,24 +286,25 @@ const App: React.FC = () => {
 };
 
 const Header: React.FC<{ title: string; onBack: () => void; color?: string }> = ({ title, onBack, color = 'indigo' }) => (
-  <div className="bg-white/95 backdrop-blur-md px-6 py-4 flex justify-between items-center shadow-sm z-50 sticky top-0 border-b border-slate-50">
+  <div className="bg-white/95 backdrop-blur-md px-4 md:px-6 py-3 md:py-4 flex justify-between items-center shadow-sm z-50 sticky top-0 border-b border-slate-50 h-[60px] md:h-[68px]">
     <div className="flex items-center gap-3">
-      <button onClick={onBack} className="w-9 h-9 bg-slate-50 rounded-xl flex items-center justify-center text-slate-300 active:scale-90 shadow-inner">
-        <i className="fas fa-chevron-left text-xs"></i>
+      <button onClick={onBack} className="w-8 h-8 md:w-9 md:h-9 bg-slate-50 rounded-xl flex items-center justify-center text-slate-300 active:scale-90 shadow-inner border border-slate-100">
+        <i className="fas fa-chevron-left text-[10px] md:text-xs"></i>
       </button>
       <div>
-        <p className={`text-[6px] font-black text-${color}-500 uppercase tracking-[0.4em] mb-0.5 italic`}>FACILITY CONTROL HUB</p>
-        <h2 className="text-sm font-black text-slate-900 leading-none uppercase italic">{title}</h2>
+        <p className={`text-[5px] md:text-[6px] font-black text-${color}-500 uppercase tracking-[0.4em] mb-0.5 italic`}>FM CONTROL HUB</p>
+        <h2 className="text-[11px] md:text-sm font-black text-slate-900 leading-none uppercase italic tracking-tight">{title}</h2>
       </div>
     </div>
-  </div>
-);
-
-const BottomNav: React.FC<{ activeTab: AppTab; onTabChange: (tab: AppTab) => void }> = ({ activeTab, onTabChange }) => (
-  <div className="fixed bottom-0 left-0 w-full pb-6 pt-3 px-6 shadow-[0_-10px_30px_rgba(0,0,0,0.03)] rounded-t-[2rem] z-50 border-t border-slate-50 flex justify-around items-center glass-panel">
-      <button onClick={() => onTabChange(AppTab.DASHBOARD)} className={`flex flex-col items-center transition-all ${activeTab === AppTab.DASHBOARD ? 'opacity-100' : 'opacity-20'}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-1 ${activeTab === AppTab.DASHBOARD ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400'}`}><i className="fas fa-chart-pie text-base"></i></div><span className="text-[7px] font-black uppercase">Dash</span></button>
-      <button onClick={() => onTabChange(AppTab.OPS)} className={`flex flex-col items-center transition-all ${activeTab === AppTab.OPS ? 'opacity-100' : 'opacity-20'}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-1 ${activeTab === AppTab.OPS ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400'}`}><i className="fas fa-tasks text-base"></i></div><span className="text-[7px] font-black uppercase">Ops</span></button>
-      <button onClick={() => onTabChange(AppTab.TECH)} className={`flex flex-col items-center transition-all ${activeTab === AppTab.TECH ? 'opacity-100' : 'opacity-20'}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-1 ${activeTab === AppTab.TECH ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400'}`}><i className="fas fa-user-astronaut text-base"></i></div><span className="text-[7px] font-black uppercase">Tech</span></button>
+    <div className="flex items-center gap-3">
+       <div className="hidden md:block text-right">
+          <p className="text-[6px] font-bold text-slate-300 uppercase tracking-widest italic">System Status</p>
+          <p className="text-[7px] font-black text-emerald-500 uppercase italic">Active Link</p>
+       </div>
+       <div className="w-7 h-7 md:w-8 md:h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center shadow-lg">
+          <i className="fas fa-satellite-dish text-[10px] animate-pulse"></i>
+       </div>
+    </div>
   </div>
 );
 

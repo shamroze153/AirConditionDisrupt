@@ -1,20 +1,20 @@
-
 import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool } from '../types';
 import { WEB_APP_URL } from '../constants';
 
-const safeFetch = async (url: string, options?: RequestInit, retries = 2): Promise<any> => {
+const safeFetch = async (baseUrl: string, params: Record<string, string> = {}, options?: RequestInit, retries = 2): Promise<any> => {
+  const urlObj = new URL(baseUrl);
+  Object.entries(params).forEach(([k, v]) => urlObj.searchParams.append(k, v));
+  urlObj.searchParams.append('cb', String(Date.now()));
+  
   const fetchOptions: RequestInit = {
     method: 'GET',
     ...options,
   };
 
   try {
-    const separator = url.includes('?') ? '&' : '?';
-    const cacheBustedUrl = `${url}${separator}cb=${Date.now()}`;
+    const response = await fetch(urlObj.toString(), fetchOptions);
     
-    const response = await fetch(cacheBustedUrl, fetchOptions);
-    
-    if (!response.ok) throw new Error(`HTTP Error: ${response.status} at ${url}`);
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status} at ${baseUrl}`);
     
     const contentType = response.headers.get("content-type");
     if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -23,19 +23,18 @@ const safeFetch = async (url: string, options?: RequestInit, retries = 2): Promi
       return json;
     } else {
       const text = await response.text();
-      // Handle Google Login redirection or script errors returned as HTML
       if (text.includes("<html") && (text.includes("goog-logo") || text.includes("Service Login"))) {
-        throw new Error("Access Denied: Ensure the Google Script is deployed as 'Anyone' and accessible.");
+        throw new Error("Access Denied: Ensure the Google Script is deployed as 'Anyone'.");
       }
       return text;
     }
   } catch (error) {
     if (retries > 0) {
-      console.warn(`Retrying fetch (${retries} left) for: ${url}`);
+      console.warn(`Retrying fetch (${retries} left) for: ${baseUrl}`);
       await new Promise(res => setTimeout(res, 1500));
-      return safeFetch(url, options, retries - 1);
+      return safeFetch(baseUrl, params, options, retries - 1);
     }
-    console.error(`Fetch failure for ${url}:`, error);
+    console.error(`Fetch failure for ${baseUrl}:`, error);
     throw error;
   }
 };
@@ -47,8 +46,6 @@ export const postAction = async (formData: FormData): Promise<void> => {
       params.append(key, String(value));
     });
 
-    // Note: mode 'no-cors' is used for Apps Script POSTs because GAS redirects (302) 
-    // to a different domain (googleusercontent) which often lacks CORS headers on the 302 response.
     await fetch(WEB_APP_URL, { 
       method: 'POST', 
       body: params, 
@@ -64,18 +61,17 @@ export const postAction = async (formData: FormData): Promise<void> => {
 };
 
 export const fetchAssets = async (category: CategoryKey): Promise<Asset[]> => 
-  safeFetch(`${WEB_APP_URL}?action=get_assets&category=${category}`);
+  safeFetch(WEB_APP_URL, { action: 'get_assets', category });
 
-export const fetchStats = async (category: CategoryKey, date: string): Promise<StatsResponse> => 
-  safeFetch(`${WEB_APP_URL}?action=get_stats&category=${category}&date=${date}`);
+export const fetchStats = async (category: CategoryKey): Promise<StatsResponse> => 
+  safeFetch(WEB_APP_URL, { action: 'get_stats', category });
 
 export const fetchGlobalStats = async (): Promise<GlobalStatsResponse> =>
-  safeFetch(`${WEB_APP_URL}?action=get_global_stats`);
+  safeFetch(WEB_APP_URL, { action: 'get_global_stats' });
 
 export const fetchTools = async (category: CategoryKey): Promise<Tool[]> =>
-  safeFetch(`${WEB_APP_URL}?action=get_tools&category=${category}`);
+  safeFetch(WEB_APP_URL, { action: 'get_tools', category });
 
-// technician property now exists on Tool interface
 export const addTool = async (category: CategoryKey, tool: Tool): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'add_tool');
@@ -86,7 +82,6 @@ export const addTool = async (category: CategoryKey, tool: Tool): Promise<void> 
   await postAction(fd);
 };
 
-// technician property now exists on Tool interface
 export const updateTool = async (category: CategoryKey, oldName: string, tool: Tool): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_tool');
@@ -113,6 +108,17 @@ export const updatePoints = async (category: CategoryKey, tech: string, points: 
   fd.append('technician', tech);
   fd.append('points', String(points));
   fd.append('reason', reason);
+  await postAction(fd);
+};
+
+export const adminReviewTicket = async (category: CategoryKey, tech: string, rowIndex: number, stars: number, points: number): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'admin_review_ticket');
+  fd.append('category', category.toUpperCase());
+  fd.append('technician', tech);
+  fd.append('rowIndex', String(rowIndex));
+  fd.append('stars', String(stars));
+  fd.append('points', String(points));
   await postAction(fd);
 };
 
@@ -156,7 +162,7 @@ export const logGasTransaction = async (tx: GasTransaction): Promise<void> => {
 
 export const getReport = async (category: CategoryKey, type: 'checklist' | 'complaint', start: string, end: string): Promise<any[]> => {
   const action = type === 'checklist' ? 'get_checklist_report' : 'get_complaint_report';
-  return await safeFetch(`${WEB_APP_URL}?action=${action}&category=${category}&start=${start}&end=${end}`);
+  return await safeFetch(WEB_APP_URL, { action, category, start, end });
 };
 
 export const submitDemand = async (category: CategoryKey, tech: string, details: string): Promise<void> => {

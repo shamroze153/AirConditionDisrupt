@@ -1,5 +1,3 @@
-
-
 export interface Asset {
   id: string | number;
   tag: string;
@@ -31,6 +29,9 @@ export interface Ticket {
   gasType?: string;
   technician?: string;
   complaintType?: 'Proactive' | 'Reactive';
+  starRating?: number;
+  pointsAwarded?: number;
+  adminReviewDate?: string;
 }
 
 export interface Seat {
@@ -127,7 +128,6 @@ export enum ChecklistType {
   QUARTERLY = 'Quarterly'
 }
 
-// Fixed: Added optional technician property to Tool interface
 export interface Tool {
   category: string;
   name: string;

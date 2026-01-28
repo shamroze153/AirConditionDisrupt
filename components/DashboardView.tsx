@@ -3,22 +3,35 @@ import { Asset, Ticket, StatsResponse, FMCategory } from '../types.ts';
 import GasStatus from './GasStatus.tsx';
 import LeaderboardItem from './LeaderboardItem.tsx';
 import { updateAssetStatus, getReport, resetLeaderboard, logInsight } from '../services/api.ts';
+import { ELECTRICAL_MODULE_DATA } from '../constants.ts';
 
 interface Props {
   category: FMCategory;
   assets: Asset[];
   tickets: Ticket[];
-  stats: any | null; 
+  stats: StatsResponse | null; 
   onRefresh: () => void;
   onViewTech: () => void;
 }
+
+const resolveStatusLabel = (status: any) => {
+  const s = String(status || '').trim();
+  const map: Record<string, string> = {
+    '1': 'Open',
+    '2': 'In Progress',
+    '3': 'On Hold',
+    '4': 'Pending',
+    '5': 'Completed'
+  };
+  return map[s] || status;
+};
 
 const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRefresh, onViewTech }) => {
   const [isInsightsOpen, setIsInsightsOpen] = useState(true);
   const [openAlertCat, setOpenAlertCat] = useState<string | null>(null);
   const [historyType, setHistoryType] = useState<'complaint' | 'checklist'>('checklist');
-  const [dateRange, setDateRange] = useState({ 
-    start: new Date().toISOString().split('T')[0], 
+  const [dateRange, setDateRange] = useState<{start: string, end: string}>({ 
+    start: new Date(new Date().setDate(new Date().getDate() - 14)).toISOString().split('T')[0], 
     end: new Date().toISOString().split('T')[0] 
   });
   const [historyData, setHistoryData] = useState<any[]>([]);
@@ -79,7 +92,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       const ts = item[0] || item.Timestamp || item.date;
       const d = parseHubDate(ts);
       if (!d) return;
-      const dateKey = d.toLocaleDateString();
+      const dateKey = d.toLocaleDateString('en-CA');
       if (!groups[dateKey]) groups[dateKey] = { entries: [] };
       groups[dateKey].entries.push(item);
     });
@@ -89,34 +102,60 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const checklistAnalysis = useMemo(() => {
     if (historyType !== 'checklist') return { completeDays: [], missedDays: [] };
     
-    const operationalAssets = assets.filter(a => ['Active', 'Maintenance'].includes(a.status));
-    const groups: Record<string, { entries: any[], doneTags: Set<string> }> = {};
+    // REQUIREMENT: Define operational assets strictly for completion logic (Exclude Spares)
+    const operationalAssets = assets.filter(a => {
+      const s = String(a.status || '').trim().toUpperCase();
+      return s === 'ACTIVE' || s === 'MAINTENANCE';
+    });
+    
+    const groups: Record<string, { entries: any[], doneUniqueIDs: Set<string> }> = {};
     
     historyData.forEach(item => {
       const ts = item[0] || item.Timestamp;
       const d = parseHubDate(ts);
       if (!d) return;
-      const dateKey = d.toLocaleDateString();
-      if (!groups[dateKey]) groups[dateKey] = { entries: [], doneTags: new Set() };
-      groups[dateKey].entries.push(item);
-      // Asset tag is index 2 for checklist
-      groups[dateKey].doneTags.add(item[2] || item.AssetTag);
+      
+      const dateKey = d.toLocaleDateString('en-CA');
+      if (!groups[dateKey]) groups[dateKey] = { entries: [], doneUniqueIDs: new Set() };
+      
+      (groups[dateKey].entries as any).push(item as any);
+      
+      const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase();
+      if (category.id === 'electrical') {
+        groups[dateKey].doneUniqueIDs.add(rawTag.split('_')[0]);
+      } else {
+        groups[dateKey].doneUniqueIDs.add(rawTag);
+      }
     });
 
     const completeDays: any[] = [];
     const missedDays: any[] = [];
 
     Object.entries(groups).forEach(([date, meta]) => {
-      const missedAssets = operationalAssets.filter(a => !meta.doneTags.has(a.tag));
-      const totalReq = category.id === 'electrical' ? 13 : operationalAssets.length;
-      const isComplete = meta.doneTags.size >= totalReq;
+      let totalReq = operationalAssets.length;
+      if (category.id === 'electrical') {
+        totalReq = 10; 
+      }
       
+      // REQUIREMENT: Count only operational assets that are found in the audit log for this day
+      const doneCount = category.id === 'electrical' 
+        ? meta.doneUniqueIDs.size 
+        : operationalAssets.filter(a => meta.doneUniqueIDs.has(String(a.tag).trim().toUpperCase())).length;
+        
+      const isComplete = doneCount >= totalReq;
+      
+      // REQUIREMENT: Identify truly missed operational units
+      const missedAssets = category.id === 'electrical' ? [] : operationalAssets.filter(a => {
+        const tag = String(a.tag).trim().toUpperCase();
+        return !meta.doneUniqueIDs.has(tag);
+      });
+
       const result = {
-        date,
+        date, 
         entries: meta.entries,
-        doneCount: meta.doneTags.size,
+        doneCount: doneCount,
         totalRequired: totalReq,
-        missedAssets
+        missedAssets: missedAssets
       };
 
       if (isComplete) completeDays.push(result);
@@ -124,8 +163,8 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     });
 
     return { 
-      completeDays: completeDays.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
-      missedDays: missedDays.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()) 
+      completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), 
+      missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) 
     };
   }, [historyData, assets, historyType, category.id]);
 
@@ -176,9 +215,12 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   };
 
   const handleExportCSV = () => {
-    if (!historyData.length) return;
-    let headers = historyType === 'complaint' ? "Timestamp,Category,Location,Asset,Details,Assigned,Status,Remarks\n" : "Timestamp,Technician,Asset,Task,Status,Remarks,Proof\n";
-    let rows = historyData.map(e => Object.values(e).join(',')).join('\n');
+    if (!historyData || historyData.length === 0) return;
+    const headers = historyType === 'complaint' ? "Timestamp,Category,Location,Asset,Details,Assigned,Status,Remarks\n" : "Timestamp,Technician,Asset,Task,Status,Remarks,Proof\n";
+    const rows = historyData.map(e => {
+      const row = typeof e === 'object' && e !== null ? Object.values(e) : [];
+      return row.join(',');
+    }).join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -193,12 +235,11 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     let end = new Date(now);
     
     if (type === 'today') {
-      // already set to now/now
+      // no change
     } else if (type === 'yesterday') {
       start.setDate(now.getDate() - 1);
       end.setDate(now.getDate() - 1);
     } else if (type === 'prev-week') {
-      // Previous week: start 14 days ago, end 7 days ago
       start.setDate(now.getDate() - 14);
       end.setDate(now.getDate() - 7);
     }
@@ -313,9 +354,19 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                   ))}
                 </div>
                 <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-100">
-                  <input type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} className="bg-transparent text-[8px] font-black outline-none italic" />
+                  <input 
+                    type="date" 
+                    value={dateRange.start} 
+                    onChange={e => setDateRange(prev => ({ start: e.target.value, end: prev.end }))} 
+                    className="bg-transparent text-[8px] font-black outline-none italic" 
+                  />
                   <span className="text-[7px] font-black text-slate-300 uppercase px-1">To</span>
-                  <input type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} className="bg-transparent text-[8px] font-black outline-none italic" />
+                  <input 
+                    type="date" 
+                    value={dateRange.end} 
+                    onChange={e => setDateRange(prev => ({ start: prev.start, end: e.target.value }))} 
+                    className="bg-transparent text-[8px] font-black outline-none italic" 
+                  />
                   <button onClick={fetchHistory} className="bg-indigo-600 text-white p-1.5 rounded-md hover:bg-indigo-700 transition-colors shadow-lg ml-1"><i className="fas fa-search text-[8px]"></i></button>
                 </div>
               </div>
@@ -325,7 +376,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
               {isFetchingHistory ? (
                 <div className="flex flex-col items-center justify-center h-40 opacity-20"><i className="fas fa-circle-notch animate-spin text-xl mb-2"></i><p className="font-black text-[9px] uppercase tracking-widest">Syncing Hub...</p></div>
               ) : historyType === 'complaint' ? (
-                Object.entries(archiveSummary).sort((a,b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()).map(([date, meta]: [string, any]) => (
+                Object.entries(archiveSummary).sort((a,b) => b[0].localeCompare(a[0])).map(([date, meta]: [string, any]) => (
                   <div key={date} className="animate-slideDown">
                     <button onClick={() => setExpandedDate(expandedDate === date ? null : date)} className="w-full flex justify-between items-center p-3 rounded-lg border bg-slate-50/20 border-slate-100">
                       <span className="text-[10px] font-bold text-slate-800 italic">{date}</span>
@@ -338,7 +389,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-[8px] font-black text-indigo-600">{e[3] || e.AssetTag}</span>
                               <span className={`text-[6px] font-black px-1.5 py-0.5 rounded ${String(e[6]).includes('Resolved') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                {e[6]}
+                                {resolveStatusLabel(e[6])}
                               </span>
                             </div>
                             <p className="text-[8px] font-bold text-slate-400 italic truncate mt-1">"{e[4]}"</p>
@@ -382,10 +433,13 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-3 bg-rose-50/50 rounded-lg animate-slideDown space-y-3">
                            <div>
-                             <p className="text-[7px] font-black text-rose-600 uppercase mb-2 tracking-widest italic">Missed Items</p>
-                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                             <p className="text-[7px] font-black text-rose-600 uppercase mb-2 tracking-widest italic">Missed Task Identifiers</p>
+                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                                {day.missedAssets.map((a: Asset) => (
-                                 <div key={a.tag} className="bg-white p-2 rounded-md border border-rose-100 text-center"><p className="text-[8px] font-black text-rose-400">{a.tag}</p></div>
+                                 <div key={a.tag} className="bg-white p-2.5 rounded-xl border border-rose-100 text-left shadow-sm">
+                                   <p className="text-[9px] font-black text-rose-600 italic leading-none mb-1">{a.tag}</p>
+                                   <p className="text-[7px] font-bold text-slate-400 truncate uppercase">{a.room}</p>
+                                 </div>
                                ))}
                              </div>
                            </div>

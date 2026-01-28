@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types.ts';
-import { CAMPUS_ASSETS, CATEGORY_TECHS, ELECTRICAL_MODULE_DATA, ELECTRICAL_TECHNICIANS, TECHNICIANS, EXHAUST_FAN_INVENTORY } from '../constants.ts';
-import { postAction, updatePoints } from '../services/api.ts';
+import { CAMPUS_ASSETS, ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY } from '../constants.ts';
+import { postAction, updatePoints, getReport } from '../services/api.ts';
 
 interface Props {
   category: CategoryKey;
@@ -22,20 +22,71 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   const [issueDetails, setIssueDetails] = useState('');
   const [showIssueModal, setShowIssueModal] = useState(false);
 
-  // Photo Evidence State
+  const [electricalMetadata, setElectricalMetadata] = useState<Record<string, { tech: string, campus: string }>>({});
+
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
+  
+  // Tracking local sync status to prevent multiple clicks and show progress
+  const [syncingTags, setSyncingTags] = useState<Set<string>>(new Set());
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
 
+  useEffect(() => {
+    if (category === 'electrical') {
+      const fetchElectricalMeta = async () => {
+        try {
+          const now = new Date();
+          const todayDateStr = now.toISOString().split('T')[0];
+          // Filter window for precision
+          const report = await getReport(category, 'checklist', '2024-01-01', todayDateStr);
+          const meta: Record<string, { tech: string, campus: string }> = {};
+          
+          const thisMonth = now.getMonth();
+          const thisYear = now.getFullYear();
+          const thisQuarter = Math.floor(thisMonth / 3);
+
+          report.forEach((row: any) => {
+            const rDate = new Date(row[0]);
+            const rDateStr = rDate.toISOString().split('T')[0];
+            const rFreq = row[8] || row.Frequency;
+            const rCat = String(row[7] || '').toUpperCase();
+            
+            if (rCat !== 'ELECTRICAL') return;
+
+            // Strict Window Check for Daily Reset
+            let inWindow = false;
+            if (rFreq === ChecklistType.DAILY && rDateStr === todayDateStr) inWindow = true;
+            if (rFreq === ChecklistType.MONTHLY && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) inWindow = true;
+            if (rFreq === ChecklistType.QUARTERLY && Math.floor(rDate.getMonth() / 3) === thisQuarter && rDate.getFullYear() === thisYear) inWindow = true;
+
+            if (inWindow && rFreq === activeFrequency) {
+              const tag = String(row[2] || row.AssetTag || '').trim().toUpperCase();
+              const tech = row[1] || row.Technician;
+              const taskId = tag.split('_')[0];
+              meta[taskId] = { tech, campus: tag.split('_').pop() || '' };
+            }
+          });
+          setElectricalMetadata(meta);
+        } catch (e) {
+          console.error("Meta fetch error", e);
+        }
+      };
+      fetchElectricalMeta();
+    }
+  }, [category, activeFrequency, stats]);
+
   const currentTaskItems = useMemo(() => {
     if (category === 'ac') {
       return assets.filter(a => {
+        const status = String(a.status || '').trim().toUpperCase();
+        if (status !== 'ACTIVE' && status !== 'MAINTENANCE') return false;
+
         const id = Number(a.id);
         if (zoneIdx === 0) return id >= 1 && id <= 40;
         if (zoneIdx === 1) return id >= 41 && id <= 82;
@@ -48,27 +99,32 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         group: `Zone ${zoneIdx + 1}`, 
         id: a.id, 
         detailPreview: `${a.brand} | ${a.cap}T`,
-        exactLocation: `${a.campus} - ${a.floor} - ${a.room}`,
-        assetCode: a.tag
+        exactLocation: `${a.campus} - ${a.floor} - ${a.room}`
       }));
     } else if (category === 'electrical') {
       if (!selectedCampus) return [];
       const items: any[] = [];
       
-      // Filter common items by frequency
       const commonTasks = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === activeFrequency);
       commonTasks.forEach(item => {
-        items.push({ tag: `${item.id}_${selectedCampus}`, label: item.label, group: item.group, exactLocation: selectedCampus });
+        items.push({ 
+          id: item.id.toUpperCase(),
+          tag: `${item.id}_${selectedCampus}`.toUpperCase(), 
+          label: item.label, 
+          group: item.group, 
+          exactLocation: selectedCampus 
+        });
       });
 
-      // Handle Exhaust Fans (MONTHLY ONLY)
       if (activeFrequency === ChecklistType.MONTHLY) {
         const fanData = EXHAUST_FAN_INVENTORY[selectedCampus];
         if (fanData) {
           fanData.forEach(floorInfo => {
             for (let i = 1; i <= floorInfo.qty; i++) {
+              const fanId = `EF_${floorInfo.floor.replace(/\s/g, '_')}_${i}`.toUpperCase();
               items.push({ 
-                tag: `EF_${selectedCampus}_${floorInfo.floor.replace(/\s/g, '_')}_${i}`, 
+                id: fanId,
+                tag: `${fanId}_${selectedCampus}`.toUpperCase(), 
                 label: `Exhaust Fan ${i} - ${floorInfo.floor}`, 
                 group: `Exhaust Fans (${floorInfo.floor})`, 
                 exactLocation: `${selectedCampus} - ${floorInfo.floor}` 
@@ -78,9 +134,14 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         }
       }
 
-      // Room/DB Inspections (DAILY ONLY)
       if (activeFrequency === ChecklistType.DAILY) {
-        items.push({ tag: `ROOM_INSP_${selectedCampus}`, label: 'Room/DB Inspection', group: 'Inspection', exactLocation: selectedCampus });
+        items.push({ 
+          id: 'ROOM_INSP',
+          tag: `ROOM_INSP_${selectedCampus}`.toUpperCase(), 
+          label: 'Room/DB Inspection', 
+          group: 'Inspection', 
+          exactLocation: selectedCampus 
+        });
       }
 
       return items;
@@ -88,7 +149,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       if (!selectedCampus) return [];
       const count = CAMPUS_ASSETS[selectedCampus as keyof typeof CAMPUS_ASSETS].washrooms;
       return Array.from({ length: count }, (_, i) => ({
-        tag: `GM-WR-${selectedCampus}-${i + 1}`,
+        tag: `GM-WR-${selectedCampus}-${i + 1}`.toUpperCase(),
         label: `Washroom ${i + 1} (Utilities)`,
         group: 'Area Checklist',
         exactLocation: `${selectedCampus} - Washroom ${i + 1}`
@@ -107,17 +168,23 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   }, [currentTaskItems]);
 
   const currentDoneList = useMemo(() => {
-    if (activeFrequency === ChecklistType.DAILY) return stats?.hvac?.daily || [];
-    if (activeFrequency === ChecklistType.MONTHLY) return stats?.hvac?.monthly || [];
-    if (activeFrequency === ChecklistType.QUARTERLY) return stats?.hvac?.quarterly || [];
-    return stats?.hvac?.daily || [];
+    let list: string[] = [];
+    if (activeFrequency === ChecklistType.DAILY) list = stats?.hvac?.daily || [];
+    else if (activeFrequency === ChecklistType.MONTHLY) list = stats?.hvac?.monthly || [];
+    else if (activeFrequency === ChecklistType.QUARTERLY) list = stats?.hvac?.quarterly || [];
+    return list.map(t => String(t || '').trim().toUpperCase());
   }, [stats, activeFrequency]);
 
-  // Completion Percentage Logic
   const completionStats = useMemo(() => {
-    const calc = (list: string[]) => {
+    const calc = (listRaw: string[]) => {
       if (currentTaskItems.length === 0) return 0;
-      const count = currentTaskItems.filter(item => list.includes(item.tag)).length;
+      const list = listRaw.map(t => String(t || '').trim().toUpperCase());
+      const count = currentTaskItems.filter(item => {
+        if (category === 'electrical') {
+          return list.some(doneTag => doneTag.split('_')[0] === (item.id || '').toUpperCase());
+        }
+        return list.includes(String(item.tag || '').toUpperCase());
+      }).length;
       return Math.round((count / currentTaskItems.length) * 100);
     };
     return {
@@ -125,7 +192,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       monthly: calc(stats?.hvac?.monthly || []),
       quarterly: calc(stats?.hvac?.quarterly || [])
     };
-  }, [currentTaskItems, stats]);
+  }, [currentTaskItems, stats, category]);
 
   const getPctColor = (pct: number) => {
     if (pct === 100) return 'text-emerald-500';
@@ -188,7 +255,19 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       return;
     }
 
-    await finalizeEntry(itemTag, "OK", "Routine Check Verified", "");
+    // REQUIREMENT: Strict verification flow for Daily checklists
+    setSyncingTags(prev => new Set(prev).add(itemTag));
+    try {
+      await finalizeEntry(itemTag, "OK", "Routine Check Verified", "");
+    } catch (e) {
+      // If error occurs, we allow retry by removing from sync set
+      setSyncingTags(prev => {
+        const next = new Set(prev);
+        next.delete(itemTag);
+        return next;
+      });
+      showToast("Sync Error. Retry verification.");
+    }
   };
 
   const handleTransmitPhoto = async () => {
@@ -197,6 +276,9 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       return;
     }
     setIsUploading(true);
+    // Add task to syncing set when transmit starts
+    setSyncingTags(prev => new Set(prev).add(currentTask));
+    
     try {
       await finalizeEntry(currentTask, "OK", `${activeFrequency} Evidence Logged`, capturedPhoto);
       setUploadSuccess(true);
@@ -209,6 +291,12 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     } catch (e) {
       showToast("Sync Failure");
       setIsUploading(false);
+      // Allow retry on failure
+      setSyncingTags(prev => {
+        const next = new Set(prev);
+        next.delete(currentTask);
+        return next;
+      });
     }
   };
 
@@ -251,7 +339,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
 
   return (
     <div className="h-full w-full bg-slate-50 flex flex-col pb-20 overflow-hidden">
-      {/* COMPLIANCE HEADER */}
       <div className="bg-white pt-6 pb-4 px-6 shadow-sm z-30 sticky top-0 border-b">
         <div className="flex justify-between items-center mb-5">
           <button onClick={onBack} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 active:scale-90 shadow-inner">
@@ -291,7 +378,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
           </div>
         )}
 
-        {/* COMPLETION RIBBON */}
         <div className="flex items-center justify-between gap-4 py-3 border-t border-slate-50 mt-2 px-2">
            <div className="flex gap-6">
               {[
@@ -316,7 +402,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         </div>
       </div>
 
-      {/* TASK LIST */}
       <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-8 hide-scroll">
         {category !== 'ac' && !selectedCampus ? (
           <div className="py-24 text-center opacity-10 flex flex-col items-center">
@@ -328,9 +413,22 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
             <div key={group} className="space-y-3">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-2">{group}</h4>
                {(tasks as any[]).map((item, i) => {
-                 const isDone = currentDoneList.includes(item.tag);
+                 const tagNormalized = String(item.tag || '').toUpperCase();
+                 const isDone = currentDoneList.some(doneTag => {
+                   if (category === 'electrical') return doneTag.split('_')[0] === (item.id || '').toUpperCase();
+                   return doneTag === tagNormalized;
+                 });
+                 
+                 const isSyncing = syncingTags.has(item.tag);
+                 
+                 let completedBy = '';
+                 if (category === 'electrical') {
+                   const doneEntry = electricalMetadata[item.id];
+                   if (doneEntry) completedBy = doneEntry.tech;
+                 }
+
                  return (
-                   <div key={i} className={`bg-white p-5 rounded-[2rem] border-2 transition-all shadow-sm ${isDone ? 'border-emerald-100 bg-emerald-50/20' : 'border-white hover:border-slate-100'}`}>
+                   <div key={i} className={`bg-white p-5 rounded-[2rem] border-2 transition-all shadow-sm ${isDone ? 'border-emerald-100 bg-emerald-50/20' : isSyncing ? 'border-amber-100 bg-amber-50/10' : 'border-white hover:border-slate-100'}`}>
                      <div className="flex justify-between items-center">
                        <div className="flex-1 pr-4">
                          <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -338,16 +436,39 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                            <span className="text-[7px] text-slate-300 font-bold uppercase tracking-tighter italic">{item.exactLocation}</span>
                          </div>
                          <p className="text-[11px] font-black text-slate-900 uppercase italic leading-tight">{item.label}</p>
-                         {item.detailPreview && <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 italic">{item.detailPreview}</p>}
+                         
+                         {isDone && completedBy && (
+                           <div className="mt-2 flex items-center gap-1.5">
+                              <div className="w-1 h-1 bg-emerald-500 rounded-full"></div>
+                              <p className="text-[8px] font-black text-emerald-600 uppercase tracking-widest italic">Completed by: {completedBy}</p>
+                           </div>
+                         )}
+
+                         {isSyncing && !isDone && (
+                           <div className="mt-2 flex items-center gap-1.5 animate-pulse">
+                              <div className="w-1 h-1 bg-amber-500 rounded-full"></div>
+                              <p className="text-[8px] font-black text-amber-600 uppercase tracking-widest italic">Verification in progress...</p>
+                           </div>
+                         )}
                        </div>
-                       {isDone ? (
-                         <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg animate-fadeIn"><i className="fas fa-check text-xs"></i></div>
-                       ) : (
-                         <div className="flex gap-2">
-                           <button onClick={() => handleAction(item.tag, 'OK')} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all shadow-md">Verified</button>
-                           <button onClick={() => handleAction(item.tag, 'Issue')} className="bg-rose-50 text-rose-600 px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all">Fault</button>
-                         </div>
-                       )}
+                       
+                       <div className="flex items-center gap-2">
+                         {isDone ? (
+                           <div className="flex flex-col items-center gap-1">
+                             <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg animate-fadeIn"><i className="fas fa-check text-xs"></i></div>
+                             <span className="text-[6px] font-black text-emerald-400 uppercase tracking-tighter">Verified</span>
+                           </div>
+                         ) : isSyncing ? (
+                           <div className="flex flex-col items-center gap-1">
+                             <div className="bg-slate-100 text-slate-400 w-9 h-9 rounded-2xl flex items-center justify-center shadow-inner"><i className="fas fa-circle-notch animate-spin text-xs"></i></div>
+                           </div>
+                         ) : (
+                           <div className="flex gap-2">
+                             <button onClick={() => handleAction(item.tag, 'OK')} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all shadow-md">Verify</button>
+                             <button onClick={() => handleAction(item.tag, 'Issue')} className="bg-rose-50 text-rose-600 px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all">Fault</button>
+                           </div>
+                         )}
+                       </div>
                      </div>
                    </div>
                  );
@@ -357,13 +478,11 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         )}
       </div>
 
-      {/* PHOTO MODAL */}
       {showPhotoModal && (
         <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center p-6 backdrop-blur-md animate-fadeIn">
            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center">
               <h3 className="text-xl font-black text-slate-950 uppercase italic tracking-tighter text-center mb-2">Public Evidence</h3>
               <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest italic text-center mb-6">Mandatory for {activeFrequency} Validation</p>
-              
               <div className="w-full aspect-square bg-slate-100 rounded-[2rem] overflow-hidden mb-6 border-2 border-slate-100 relative group">
                 {capturedPhoto ? (
                   <div className="relative h-full w-full">
@@ -387,7 +506,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                   </>
                 )}
               </div>
-
               <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
@@ -396,7 +514,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                   reader.readAsDataURL(file);
                 }
               }} />
-
               <div className="grid grid-cols-2 gap-4 w-full">
                 {capturedPhoto ? (
                   <>
@@ -419,10 +536,9 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         </div>
       )}
 
-      {/* ISSUE MODAL */}
       {showIssueModal && (
         <div className="fixed inset-0 bg-slate-950/95 z-[200] flex items-center justify-center p-6 backdrop-blur-md animate-fadeIn">
-           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl border border-white/5">
+           <div className="bg-white w-full max-sm rounded-[2.5rem] p-10 shadow-2xl border border-white/5">
               <h3 className="text-2xl font-black text-slate-900 mb-2 uppercase italic tracking-tighter leading-none">Log Fault</h3>
               <textarea value={issueDetails} onChange={e => setIssueDetails(e.target.value)} placeholder="Describe the failure..." className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 focus:border-rose-500 outline-none font-bold text-xs min-h-[160px] resize-none italic" />
               <div className="grid grid-cols-2 gap-4 mt-8">

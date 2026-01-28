@@ -1,6 +1,6 @@
 import { FMCategory } from './types';
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzyhYVN42zKR9_wqEYuWRQVV2rcQuA0rl6jMNgIiz4kITaMGujVUrsOu9MY9_Nt38APEg/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz4Kiv6MNl7HsuZ50r1wTRGlCVoz2UbNKtIGuKztW1e0PKf-W-MxH9S7OF7T2Xg6o4ssA/exec";
 
 export const TECHNICIANS = ['Bilal', 'Asad', 'Taimoor', 'Saboor'];
 export const ELECTRICAL_TECHNICIANS = ['Ibraheem', 'Naveed Ali', 'Haris', 'Owais'];
@@ -41,7 +41,6 @@ export const ELECTRICAL_MODULE_DATA = {
     { id: 'gen_warmup', label: 'Generator Warmup', group: 'Generator', frequency: 'Daily' },
     { id: 'ups_battery', label: 'UPS Battery – Water Level Check & Cleaning', group: 'UPS', frequency: 'Daily' },
     { id: 'ups_func', label: 'UPS Functioning Check', group: 'UPS', frequency: 'Daily' },
-    { id: 'ups_battery', label: 'UPS Battery – Water Level Check & Cleaning', group: 'UPS', frequency: 'Daily' },
     { id: 'db_insp', label: 'Electrical DB Inspection', group: 'DB', frequency: 'Daily' },
     { id: 'gen_oil_check', label: 'Generator Oil Check', group: 'Generator', frequency: 'Monthly' },
     { id: 'gen_radiator', label: 'Generator Radiator – Water Level Check', group: 'Generator', frequency: 'Daily' },

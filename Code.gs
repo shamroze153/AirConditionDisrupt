@@ -1,5 +1,5 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v21.0 - Robust Tool CRUD & Ledger Fixes
+ * DISRUPT_FM_ULTIMATE Backend v23.0 - Admin Review Lifecycle
  */
 
 const SPREADSHEET_ID = "1yS28yOFwRWHoSvMmIm6bEisBFHTrQLiFZc38e6pnpv4";
@@ -16,7 +16,7 @@ function initializeSheets(ss) {
 
   const headers = {
     'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category'],
-    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType'],
+    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate'],
     'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Proof', 'Category', 'Frequency'],
     'Performance_Log': ['Timestamp', 'Technician', 'Points', 'Reason', 'Category'],
     'Material_Demands': ['Timestamp', 'Technician', 'Details', 'Status', 'Category'],
@@ -39,6 +39,7 @@ function initializeSheets(ss) {
 function doGet(e) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   initializeSheets(ss);
+  const tz = ss.getSpreadsheetTimeZone();
   
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').toLowerCase().trim();
@@ -67,7 +68,7 @@ function doGet(e) {
 
       case 'get_stats':
         const now = new Date();
-        const todayStr = now.toDateString();
+        const todayStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
         const thisMonth = now.getMonth();
         const thisYear = now.getFullYear();
         const thisQuarter = Math.floor(thisMonth / 3);
@@ -77,7 +78,8 @@ function doGet(e) {
             rowIndex: idx + 2, date: row[0], category: row[1], location: row[2],
             assetTag: row[3], details: row[4], assignedTo: row[5], status: row[6],
             resolvedBy: row[7], workType: row[8], remarks: row[9], gasUsed: row[10], gasType: row[11],
-            complaintType: row[12] || 'Reactive'
+            complaintType: row[12] || 'Reactive',
+            starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15]
           }))
           .filter(t => String(t.category).toUpperCase() === category);
         
@@ -88,12 +90,13 @@ function doGet(e) {
 
         checkData.forEach(r => {
           const rDate = new Date(r[0]);
+          const rDateStr = Utilities.formatDate(rDate, tz, "yyyy-MM-dd");
           const rCat = String(r[7] || '').toUpperCase();
           const rFreq = String(r[8] || 'Daily');
           const rTag = r[2];
           if (rCat !== category) return;
           
-          if (rFreq === 'Daily' && rDate.toDateString() === todayStr) dailyComp.push(rTag);
+          if (rFreq === 'Daily' && rDateStr === todayStr) dailyComp.push(rTag);
           if (rFreq === 'Monthly' && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) monthlyComp.push(rTag);
           if (rFreq === 'Quarterly' && Math.floor(rDate.getMonth() / 3) === thisQuarter && rDate.getFullYear() === thisYear) quarterlyComp.push(rTag);
         });
@@ -123,7 +126,8 @@ function doGet(e) {
           rowIndex: idx + 2, date: row[0], category: row[1], location: row[2],
           assetTag: row[3], details: row[4], assignedTo: row[5], status: row[6],
           resolvedBy: row[7], workType: row[8], remarks: row[9], gasUsed: row[10], gasType: row[11],
-          complaintType: row[12] || 'Reactive'
+          complaintType: row[12] || 'Reactive',
+          starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15]
         }));
         const allLogs = getSheetData(ss, 'Performance_Log').map(r => ({ Timestamp: r[0], tech: r[1], points: Number(r[2]), reason: r[3], category: r[4] }));
         const seatingData = getSheetData(ss, 'Seating_Plan').map(row => ({
@@ -176,9 +180,9 @@ function doPost(e) {
         break;
 
       case 'resolve_ticket':
-        const woSheet = ss.getSheetByName('Work_Orders');
-        const rowIndex = Number(params.rowIndex);
-        woSheet.getRange(rowIndex, 7, 1, 6).setValues([[
+        const woSheetRes = ss.getSheetByName('Work_Orders');
+        const rowIndexRes = Number(params.rowIndex);
+        woSheetRes.getRange(rowIndexRes, 7, 1, 6).setValues([[
           params.status, 
           params.resolvedBy, 
           params.workType || '', 
@@ -189,6 +193,32 @@ function doPost(e) {
         if (params.gasUsed && Number(params.gasUsed) > 0) {
           ss.getSheetByName('Gas_Ledger').appendRow([new Date(), 'USAGE', params.gasType, -Math.abs(Number(params.gasUsed)), params.resolvedBy.split(' • ')[0], params.assetTag, category]);
         }
+        break;
+
+      case 'admin_review_ticket':
+        const woSheetRev = ss.getSheetByName('Work_Orders');
+        const rowIndexRev = Number(params.rowIndex);
+        const stars = Number(params.stars);
+        const points = Number(params.points);
+        const tech = params.technician;
+        
+        // 1. Update Work Order: Status to Completed, set StarRating, PointsAwarded, AdminReviewDate
+        // StarRating is Column 14 (N), Points Column 15 (O), ReviewDate Column 16 (P)
+        woSheetRev.getRange(rowIndexRev, 7).setValue('Completed');
+        woSheetRev.getRange(rowIndexRev, 14, 1, 3).setValues([[
+          stars, 
+          points, 
+          new Date()
+        ]]);
+
+        // 2. Award Points to Performance Log
+        ss.getSheetByName('Performance_Log').appendRow([
+          new Date(), 
+          tech, 
+          points, 
+          `Evaluation Rating: ${stars} Stars`, 
+          category
+        ]);
         break;
 
       case 'complain':
@@ -222,7 +252,6 @@ function doPost(e) {
         const toolSheet = ss.getSheetByName('Master_Tools');
         const tools = toolSheet.getDataRange().getValues();
         for (let i = 1; i < tools.length; i++) {
-          // Robust trimmed lookup
           if (String(tools[i][0]).toUpperCase() === category && String(tools[i][1]).trim() === String(params.oldName).trim()) {
             toolSheet.getRange(i + 1, 2, 1, 3).setValues([[
               params.name, 
@@ -238,7 +267,6 @@ function doPost(e) {
         const dToolSheet = ss.getSheetByName('Master_Tools');
         const dTools = dToolSheet.getDataRange().getValues();
         for (let i = dTools.length - 1; i >= 1; i--) {
-          // FIXED: Use dTools[i] array instead of dToolSheet object
           if (String(dTools[i][0]).toUpperCase() === category && String(dTools[i][1]).trim() === String(params.name).trim()) {
             dToolSheet.deleteRow(i + 1);
             break;
