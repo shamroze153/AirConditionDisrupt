@@ -88,6 +88,7 @@ export interface HvacStats {
   monthly: string[];
   quarterly: string[];
   gasStocks: Record<string, number>;
+  assetUsage?: Record<string, number>;
 }
 
 export interface StatsResponse {

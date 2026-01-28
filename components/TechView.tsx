@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, StatsResponse, CategoryKey, Tool } from '../types.ts';
-import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES, ELECTRICAL_TECHNICIANS } from '../constants.ts';
-import { submitDemand, postAction, updatePoints, fetchTools, updateTool, addTool, deleteTool } from '../services/api.ts';
+import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES } from '../constants.ts';
+import { submitDemand, postAction, fetchTools, updateTool, addTool, deleteTool } from '../services/api.ts';
 
 interface Props {
   category: CategoryKey;
@@ -38,9 +38,6 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const [selectedGasType, setSelectedGasType] = useState<string>(GAS_TYPES[0].name);
   const [isResolving, setIsResolving] = useState(false);
 
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
   const [serverTools, setServerTools] = useState<Tool[]>([]);
   const [isLoadingTools, setIsLoadingTools] = useState(false);
   const [toolSearch, setToolSearch] = useState('');
@@ -111,31 +108,15 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     if (!demandTech && activeTechList.length > 0) setDemandTech(activeTechList[0]);
   }, [activeTechList, selectedTech]);
 
-  const handleAdminToggle = () => isAdminUnlocked ? setIsAdminUnlocked(false) : setShowPinModal(true);
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pinInput === '5566') {
-      setIsAdminUnlocked(true);
-      setShowPinModal(false);
-      setPinInput('');
-      showToast("Admin Controls Enabled");
-    } else {
-      showToast("Unauthorized Access");
-      setPinInput('');
-    }
-  };
-
   const handleResolve = async () => {
     if (!resolveTicket || solvingTechs.length === 0) return;
     setIsResolving(true);
-    
     const solversStr = solvingTechs.join(' & ');
     const fd = new FormData();
     fd.append('action', 'resolve_ticket');
     fd.append('category', category.toUpperCase());
     fd.append('rowIndex', String(resolveTicket.rowIndex));
     fd.append('assetTag', resolveTicket.assetTag);
-    // NEW STATUS FOR ADMIN REVIEW
     fd.append('status', 'Resolved – Pending Admin Review');
     fd.append('resolvedBy', `${solversStr} • ${new Date().toLocaleString()}`);
     fd.append('workType', resolveType);
@@ -150,15 +131,14 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
       setSolvingTechs([]);
       setResolveRemarks('');
       setGasAmount('0');
-      showToast("Resolution Transmitted – Pending Admin Review");
-    } catch (e) { showToast("Network Sync Failure"); }
+      showToast("Sync Successful – Pending Review");
+    } catch (e) { showToast("Sync Failure"); }
     finally { setIsResolving(false); }
   };
 
   const handleSaveTool = async () => {
     if (!toolFormData.name || toolFormData.qty === undefined) return;
     setIsSavingTool(true);
-    showToast("Synchronizing Hub Registry...");
     try {
       const toolToSave: Tool = {
         name: toolFormData.name!,
@@ -166,45 +146,32 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
         technician: toolFormData.technician || '',
         category: category.toUpperCase()
       };
-
-      if (editingTool) {
-        await updateTool(category, editingTool.name, toolToSave);
-        showToast("Tool Entry Modified Successfully");
-      } else {
-        await addTool(category, toolToSave);
-        showToast("New Tool Registered Successfully");
-      }
+      if (editingTool) await updateTool(category, editingTool.name, toolToSave);
+      else await addTool(category, toolToSave);
       setShowToolModal(false);
       loadTools();
-    } catch (e) {
-      showToast("Inventory Sync Failure");
-    } finally {
-      setIsSavingTool(false);
-    }
+      showToast("Tool Registry Updated");
+    } catch (e) { showToast("Registry Sync Error"); }
+    finally { setIsSavingTool(false); }
   };
 
   const handleDeleteTool = async (name: string) => {
-    if (!window.confirm(`CRITICAL: Permanently remove ${name} from inventory?`)) return;
-    showToast("Transmitting Deletion Request...");
+    if (!window.confirm(`Permanently remove ${name}?`)) return;
     try {
       await deleteTool(category, name);
-      showToast("Tool Registry Cleared");
+      showToast("Entry Deleted");
       loadTools();
-    } catch (e) {
-      showToast("Deletion Request Rejected");
-    }
+    } catch (e) { showToast("Delete Error"); }
   };
 
   const handleUpdateToolQty = async (toolName: string, delta: number) => {
-    if (!isAdminUnlocked) return;
     const tool = serverTools.find(t => t.name === toolName);
     if (!tool) return;
     const newQty = Math.max(0, tool.qty + delta);
     try {
       await updateTool(category, toolName, { ...tool, qty: newQty });
-      showToast(`${toolName} Volume Updated`);
       loadTools();
-    } catch (e) { showToast("Volume Sync Error"); }
+    } catch (e) { showToast("Volume Update Error"); }
   };
 
   const handleSubmitDemand = async () => {
@@ -212,23 +179,19 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     setIsSubmittingDemand(true);
     try {
       await submitDemand(category, demandTech, demandText);
-      showToast("Material Authorization Dispatched");
+      showToast("Request Dispatched");
       setDemandText('');
-    } catch (e) { showToast("Supply Hub Timeout"); }
+    } catch (e) { showToast("Network Error"); }
     finally { setIsSubmittingDemand(false); }
   };
 
   const toggleMultiSelect = (tech: string) => {
-    setMultiSelectedTechs(prev => 
-      prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]
-    );
+    setMultiSelectedTechs(prev => prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]);
     setSelectedTech(tech); 
   };
 
   const toggleSolvingTech = (tech: string) => {
-    setSolvingTechs(prev =>
-      prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]
-    );
+    setSolvingTechs(prev => prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]);
   };
 
   const groupedTools: Record<string, Tool[]> = useMemo(() => {
@@ -302,11 +265,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                            <span className="text-[10px] font-black text-white italic">Zone {techProfileData.compliance.zone}</span>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
-                           {[
-                             { label: 'Daily', pct: techProfileData.compliance.d },
-                             { label: 'Monthly', pct: techProfileData.compliance.m },
-                             { label: 'Quart.', pct: techProfileData.compliance.q }
-                           ].map(cp => (
+                           {[ { label: 'Daily', pct: techProfileData.compliance.d }, { label: 'Monthly', pct: techProfileData.compliance.m }, { label: 'Quart.', pct: techProfileData.compliance.q } ].map(cp => (
                              <div key={cp.label} className="text-center">
                                <p className="text-[7px] font-bold text-white/30 uppercase mb-1">{cp.label}</p>
                                <p className={`text-sm font-black italic ${cp.pct === 100 ? 'text-emerald-400' : cp.pct > 50 ? 'text-amber-400' : 'text-rose-400'}`}>{cp.pct}%</p>
@@ -348,10 +307,10 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                            <div key={i} className="bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                                <div className="flex-1 space-y-2">
                                   <div className="flex items-center gap-3">
-                                     <span className="text-[7px] font-black text-white bg-slate-950 px-2 py-0.5 rounded italic">{t.assetTag}</span>
+                                     <span className="text-[7px] font-black text-white bg-slate-950 px-2 py-0.5 rounded italic uppercase">{t.assetTag}</span>
                                      <span className="text-[7px] font-bold text-slate-300 uppercase italic">{new Date(t.date).toLocaleDateString()}</span>
                                   </div>
-                                  <h5 className="text-[13px] font-black text-slate-900 italic">"{t.details}"</h5>
+                                  <h5 className="text-[13px] font-black text-slate-900 italic uppercase">"{t.details}"</h5>
                                   <p className="text-[8px] font-bold text-slate-400 uppercase italic">{t.location}</p>
                                </div>
                                <button onClick={() => { setResolveTicket(t); setSolvingTechs([selectedTech]); }} className="w-full md:w-auto bg-slate-950 text-white px-8 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest italic shadow-xl">Solve Issue</button>
@@ -359,7 +318,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                         )) : (
                            <div className="py-20 text-center opacity-10 flex flex-col items-center">
                               <i className="fas fa-check-circle text-6xl mb-4"></i>
-                              <p className="text-xs font-black uppercase italic tracking-widest">Clear Queue</p>
+                              <p className="text-xs font-black uppercase italic tracking-widest">Pipeline Clear</p>
                            </div>
                         )}
                      </div>
@@ -434,19 +393,14 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                    <input type="text" placeholder="Filter inventory..." value={toolSearch} onChange={e => setToolSearch(e.target.value)} className="bg-white border border-slate-100 px-10 py-2.5 rounded-xl text-[9px] font-bold outline-none focus:border-indigo-500 shadow-sm w-48 md:w-64" />
                    <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-[10px]"></i>
                  </div>
-                 {isAdminUnlocked && (
-                   <button onClick={() => { setEditingTool(null); setToolFormData({ name: '', qty: 1, technician: '' }); setShowToolModal(true); }} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
-                     <i className="fas fa-plus"></i><span>Add Tool</span>
-                   </button>
-                 )}
-                 <button onClick={handleAdminToggle} className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${isAdminUnlocked ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-300 border border-slate-100 hover:text-indigo-600'}`}>
-                    <i className={`fas fa-${isAdminUnlocked ? 'lock-open' : 'lock'} text-xs`}></i>
+                 <button onClick={() => { setEditingTool(null); setToolFormData({ name: '', qty: 1, technician: '' }); setShowToolModal(true); }} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-[9px] font-black uppercase shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+                   <i className="fas fa-plus"></i><span>Add Tool</span>
                  </button>
               </div>
            </div>
 
            {isLoadingTools ? (
-             <div className="py-32 flex flex-col items-center justify-center opacity-10"><i className="fas fa-circle-notch animate-spin text-5xl mb-4"></i><p className="text-[10px] font-black uppercase italic">Fetching Tool Registry...</p></div>
+             <div className="py-32 flex flex-col items-center justify-center opacity-10"><i className="fas fa-circle-notch animate-spin text-5xl mb-4"></i><p className="text-[10px] font-black uppercase italic">Fetching Registry...</p></div>
            ) : (
              <div className="space-y-10">
                {Object.entries(groupedTools).map(([group, tools]) => (
@@ -465,23 +419,21 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                                  <p className="text-2xl font-black text-slate-950 italic">{tool.qty}</p>
                               </div>
                            </div>
-                           <h4 className="text-[12px] font-black text-slate-900 uppercase italic mb-6 leading-tight">"{tool.name}"</h4>
-                           {isAdminUnlocked && (
-                             <div className="flex flex-col gap-3">
-                               <div className="flex gap-2">
-                                  <button onClick={() => handleUpdateToolQty(tool.name, -1)} className="flex-1 bg-slate-50 text-slate-400 py-2 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-all"><i className="fas fa-minus text-[8px]"></i></button>
-                                  <button onClick={() => handleUpdateToolQty(tool.name, 1)} className="flex-1 bg-slate-50 text-slate-400 py-2 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 transition-all"><i className="fas fa-plus text-[8px]"></i></button>
-                               </div>
-                               <div className="flex gap-2">
-                                  <button onClick={() => { setEditingTool(tool); setToolFormData({ ...tool }); setShowToolModal(true); }} className="flex-1 bg-indigo-50 text-indigo-400 py-2 rounded-lg hover:bg-indigo-600 hover:text-white transition-all text-[8px] font-black uppercase">
-                                    <i className="fas fa-pencil-alt mr-1"></i> Edit
-                                  </button>
-                                  <button onClick={() => handleDeleteTool(tool.name)} className="flex-1 bg-rose-50 text-rose-300 py-2 rounded-lg hover:bg-rose-600 hover:text-white transition-all text-[8px] font-black uppercase">
-                                    <i className="fas fa-trash mr-1"></i> Del
-                                  </button>
-                               </div>
+                           <h4 className="text-[12px] font-black text-slate-900 uppercase italic mb-6 leading-tight uppercase">"{tool.name}"</h4>
+                           <div className="flex flex-col gap-3">
+                             <div className="flex gap-2">
+                                <button onClick={() => handleUpdateToolQty(tool.name, -1)} className="flex-1 bg-slate-50 text-slate-400 py-2 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-all"><i className="fas fa-minus text-[8px]"></i></button>
+                                <button onClick={() => handleUpdateToolQty(tool.name, 1)} className="flex-1 bg-slate-50 text-slate-400 py-2 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 transition-all"><i className="fas fa-plus text-[8px]"></i></button>
                              </div>
-                           )}
+                             <div className="flex gap-2">
+                                <button onClick={() => { setEditingTool(tool); setToolFormData({ ...tool }); setShowToolModal(true); }} className="flex-1 bg-indigo-50 text-indigo-400 py-2 rounded-lg hover:bg-indigo-600 hover:text-white transition-all text-[8px] font-black uppercase">
+                                  <i className="fas fa-pencil-alt mr-1"></i> Edit
+                                </button>
+                                <button onClick={() => handleDeleteTool(tool.name)} className="flex-1 bg-rose-50 text-rose-300 py-2 rounded-lg hover:bg-rose-600 hover:text-white transition-all text-[8px] font-black uppercase">
+                                  <i className="fas fa-trash mr-1"></i> Del
+                                </button>
+                             </div>
+                           </div>
                         </div>
                       ))}
                    </div>
@@ -498,22 +450,22 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
              <div className="flex justify-between items-center mb-10">
                <div>
                  <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">{editingTool ? 'Modify Tool' : 'Register Tool'}</h3>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-3 tracking-widest italic">Authorized Entry</p>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-3 tracking-widest italic">Authorized Registry Entry</p>
                </div>
-               <button onClick={() => setShowToolModal(false)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 transition-all"><i className="fas fa-times text-xl"></i></button>
+               <button onClick={() => setShowToolModal(false)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 transition-all active:scale-90"><i className="fas fa-times text-xl"></i></button>
              </div>
              <div className="space-y-6">
                 <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Tool Description</label>
-                  <input type="text" value={toolFormData.name || ''} onChange={e => setToolFormData({...toolFormData, name: e.target.value})} placeholder="e.g. Hammer Drill" className="w-full bg-transparent font-black text-[11px] outline-none italic uppercase" />
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Description</label>
+                  <input type="text" value={toolFormData.name || ''} onChange={e => setToolFormData({...toolFormData, name: e.target.value})} placeholder="Item name..." className="w-full bg-transparent font-black text-[11px] outline-none italic uppercase" />
                 </div>
                 <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Stock Volume</label>
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Initial Volume</label>
                   <input type="number" value={toolFormData.qty || 0} onChange={e => setToolFormData({...toolFormData, qty: parseInt(e.target.value) || 0})} className="w-full bg-transparent font-black text-xl outline-none italic" />
                 </div>
                 {category === 'electrical' && (
                   <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
-                    <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Bag Assignment</label>
+                    <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Assignment</label>
                     <select value={toolFormData.technician || ''} onChange={e => setToolFormData({...toolFormData, technician: e.target.value})} className="w-full bg-transparent font-black text-[10px] outline-none italic uppercase cursor-pointer">
                       <option value="">Common Inventory</option>
                       {electricalBags.map(bag => <option key={bag} value={bag}>{bag}</option>)}
@@ -521,7 +473,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                   </div>
                 )}
                 <button onClick={handleSaveTool} disabled={isSavingTool || !toolFormData.name} className="w-full bg-slate-950 text-white py-6 rounded-2xl font-black uppercase text-[10px] tracking-[0.3em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30">
-                  {isSavingTool ? 'Synchronizing...' : 'Finalize Registry'}
+                  {isSavingTool ? 'Synchronizing...' : 'Finalize Entry'}
                 </button>
              </div>
           </div>
@@ -532,12 +484,12 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
         <div className="fixed inset-0 bg-slate-950/95 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
           <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-3xl relative overflow-hidden max-h-[90vh] overflow-y-auto hide-scroll">
              <div className="flex justify-between items-center mb-8">
-               <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Solve Issue</h3>
-               <button onClick={() => setResolveTicket(null)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 flex items-center justify-center hover:text-rose-500 transition-all"><i className="fas fa-times text-xl"></i></button>
+               <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Resolution Hub</h3>
+               <button onClick={() => setResolveTicket(null)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 flex items-center justify-center hover:text-rose-500 transition-all active:scale-90"><i className="fas fa-times text-xl"></i></button>
              </div>
              <div className="space-y-6">
                 <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-4 ml-1 italic">Who solved this issue?</label>
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-4 ml-1 italic">Specialist Attribution</label>
                   <div className="grid grid-cols-2 gap-3">
                      {allAvailableTechs.map(tech => (
                        <button key={tech} onClick={() => toggleSolvingTech(tech)} className={`p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${solvingTechs.includes(tech) ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-md' : 'border-white bg-white text-slate-400'}`}>
@@ -548,7 +500,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                   </div>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Classification</label>
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Task Classification</label>
                   <div className="flex gap-2">
                     {['Minor', 'Major'].map(type => (
                       <button key={type} onClick={() => setResolveType(type as any)} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all italic ${resolveType === type ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 border border-slate-100'}`}>{type}</button>
@@ -557,7 +509,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                 </div>
                 {category === 'ac' && (
                   <div className="bg-slate-50 p-5 rounded-2xl border-2 border-slate-100 space-y-4">
-                    <label className="block text-[8px] font-black text-slate-400 uppercase italic ml-1">Refrigerant Usage?</label>
+                    <label className="block text-[8px] font-black text-slate-400 uppercase italic ml-1">Refrigerant Utilized?</label>
                     <div className="flex gap-2">
                       {['Yes', 'No'].map(choice => (
                         <button key={choice} onClick={() => setGasUsedYesNo(choice as any)} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all italic ${gasUsedYesNo === choice ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>{choice}</button>
@@ -573,28 +525,15 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                     )}
                   </div>
                 )}
-                <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Resolution Narrative</label>
-                  <textarea value={resolveRemarks} onChange={e => setResolveRemarks(e.target.value)} rows={3} placeholder="Detail actions..." className="w-full bg-transparent font-bold text-[11px] outline-none italic uppercase resize-none leading-relaxed" />
+                <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 transition-all shadow-inner">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Resolution Brief</label>
+                  <textarea value={resolveRemarks} onChange={e => setResolveRemarks(e.target.value)} rows={3} placeholder="Narrate actions taken..." className="w-full bg-transparent font-bold text-[11px] outline-none italic uppercase resize-none leading-relaxed" />
                 </div>
                 <button onClick={handleResolve} disabled={isResolving || !resolveRemarks.trim() || solvingTechs.length === 0} className="w-full bg-slate-950 text-white py-6 rounded-[1.5rem] font-black uppercase text-[10px] tracking-[0.4em] shadow-2xl active:scale-[0.98] transition-all disabled:opacity-30 italic flex items-center justify-center gap-4">
                   {isResolving ? <i className="fas fa-circle-notch animate-spin text-teal-400"></i> : <i className="fas fa-check-double text-teal-400"></i>}
-                  <span>{isResolving ? 'Synchronizing...' : 'Finalize Solution'}</span>
+                  <span>{isResolving ? 'Synchronizing...' : 'Finalize Task'}</span>
                 </button>
              </div>
-          </div>
-        </div>
-      )}
-
-      {showPinModal && (
-        <div className="fixed inset-0 bg-slate-950/95 z-[700] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
-          <div className="bg-white w-full max-w-xs rounded-[2.5rem] p-10 shadow-3xl border border-white/5 text-center space-y-8">
-             <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner"><i className="fas fa-shield-alt text-3xl"></i></div>
-             <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Admin Entry</h3>
-             <form onSubmit={handlePinSubmit} className="space-y-8">
-                <input type="password" autoFocus maxLength={4} value={pinInput} onChange={(e) => setPinInput(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-5 text-center text-3xl font-black tracking-[0.6em] outline-none shadow-inner" placeholder="••••" />
-                <div className="flex gap-4"><button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-4 text-[10px] font-black uppercase text-slate-400 italic">Exit</button><button type="submit" className="flex-1 bg-slate-950 text-white py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-2xl">Enter</button></div>
-             </form>
           </div>
         </div>
       )}

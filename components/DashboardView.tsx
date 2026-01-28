@@ -3,7 +3,6 @@ import { Asset, Ticket, StatsResponse, FMCategory } from '../types.ts';
 import GasStatus from './GasStatus.tsx';
 import LeaderboardItem from './LeaderboardItem.tsx';
 import { updateAssetStatus, getReport, resetLeaderboard, logInsight } from '../services/api.ts';
-import { ELECTRICAL_MODULE_DATA } from '../constants.ts';
 
 interface Props {
   category: FMCategory;
@@ -102,7 +101,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const checklistAnalysis = useMemo(() => {
     if (historyType !== 'checklist') return { completeDays: [], missedDays: [] };
     
-    // REQUIREMENT: Define operational assets strictly for completion logic (Exclude Spares)
     const operationalAssets = assets.filter(a => {
       const s = String(a.status || '').trim().toUpperCase();
       return s === 'ACTIVE' || s === 'MAINTENANCE';
@@ -114,64 +112,34 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       const ts = item[0] || item.Timestamp;
       const d = parseHubDate(ts);
       if (!d) return;
-      
       const dateKey = d.toLocaleDateString('en-CA');
       if (!groups[dateKey]) groups[dateKey] = { entries: [], doneUniqueIDs: new Set() };
-      
       (groups[dateKey].entries as any).push(item as any);
-      
       const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase();
-      if (category.id === 'electrical') {
-        groups[dateKey].doneUniqueIDs.add(rawTag.split('_')[0]);
-      } else {
-        groups[dateKey].doneUniqueIDs.add(rawTag);
-      }
+      if (category.id === 'electrical') groups[dateKey].doneUniqueIDs.add(rawTag.split('_')[0]);
+      else groups[dateKey].doneUniqueIDs.add(rawTag);
     });
 
     const completeDays: any[] = [];
     const missedDays: any[] = [];
-
     Object.entries(groups).forEach(([date, meta]) => {
       let totalReq = operationalAssets.length;
-      if (category.id === 'electrical') {
-        totalReq = 10; 
-      }
-      
-      // REQUIREMENT: Count only operational assets that are found in the audit log for this day
+      if (category.id === 'electrical') totalReq = 10; 
       const doneCount = category.id === 'electrical' 
         ? meta.doneUniqueIDs.size 
         : operationalAssets.filter(a => meta.doneUniqueIDs.has(String(a.tag).trim().toUpperCase())).length;
-        
       const isComplete = doneCount >= totalReq;
-      
-      // REQUIREMENT: Identify truly missed operational units
-      const missedAssets = category.id === 'electrical' ? [] : operationalAssets.filter(a => {
-        const tag = String(a.tag).trim().toUpperCase();
-        return !meta.doneUniqueIDs.has(tag);
-      });
-
-      const result = {
-        date, 
-        entries: meta.entries,
-        doneCount: doneCount,
-        totalRequired: totalReq,
-        missedAssets: missedAssets
-      };
-
-      if (isComplete) completeDays.push(result);
-      else missedDays.push(result);
+      const missedAssets = category.id === 'electrical' ? [] : operationalAssets.filter(a => !meta.doneUniqueIDs.has(String(a.tag).trim().toUpperCase()));
+      const result = { date, entries: meta.entries, doneCount, totalRequired: totalReq, missedAssets };
+      if (isComplete) completeDays.push(result); else missedDays.push(result);
     });
-
-    return { 
-      completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), 
-      missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) 
-    };
+    return { completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) };
   }, [historyData, assets, historyType, category.id]);
 
   const fetchHistory = async () => {
     setIsFetchingHistory(true);
     try {
-      const data = await getReport(category.id, historyType, dateRange.start, dateRange.end);
+      const data = await getReport(category.id, historyType as 'complaint' | 'checklist', dateRange.start, dateRange.end);
       setHistoryData(data || []);
     } catch (e) { console.error(e); }
     finally { setIsFetchingHistory(false); }
@@ -207,11 +175,8 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     try {
       await logInsight(category.id, asset.tag, cat, `Acknowledged by Hub Command`);
       onRefresh();
-    } catch (e) { 
-      console.error("Ack Error:", e); 
-    } finally { 
-      setProcessingInsight(null); 
-    }
+    } catch (e) { console.error("Ack Error:", e); } 
+    finally { setProcessingInsight(null); }
   };
 
   const handleExportCSV = () => {
@@ -223,27 +188,15 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     }).join('\n');
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${category.id}_${historyType}_export.csv`;
-    a.click();
+    const a = document.createElement('a'); a.href = url; a.download = `${category.id}_${historyType}_export.csv`; a.click();
   };
 
   const setFilter = (type: string) => {
     const now = new Date();
     let start = new Date(now);
     let end = new Date(now);
-    
-    if (type === 'today') {
-      // no change
-    } else if (type === 'yesterday') {
-      start.setDate(now.getDate() - 1);
-      end.setDate(now.getDate() - 1);
-    } else if (type === 'prev-week') {
-      start.setDate(now.getDate() - 14);
-      end.setDate(now.getDate() - 7);
-    }
-    
+    if (type === 'yesterday') { start.setDate(now.getDate() - 1); end.setDate(now.getDate() - 1); } 
+    else if (type === 'prev-week') { start.setDate(now.getDate() - 14); end.setDate(now.getDate() - 7); }
     setDateRange({ start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] });
   };
 
@@ -277,9 +230,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                     {insight.data.map(a => (
                       <div key={a.tag} className="flex justify-between items-center p-2 rounded-md border border-slate-50 shadow-sm">
                         <div className="flex-1"><p className="text-[9px] font-black text-slate-800 italic">{a.tag} • {a.room}</p></div>
-                        <button disabled={processingInsight === (a as Asset).tag} onClick={() => handleAcknowledge(a as Asset, insight.label)} className={`bg-${insight.color}-100 text-${insight.color}-600 px-3 py-1 rounded text-[8px] font-black uppercase tracking-widest hover:bg-${insight.color}-600 hover:text-white transition-all`}>
-                          ACK
-                        </button>
+                        <button disabled={processingInsight === (a as Asset).tag} onClick={() => handleAcknowledge(a as Asset, insight.label)} className={`bg-${insight.color}-100 text-${insight.color}-600 px-3 py-1 rounded text-[8px] font-black uppercase tracking-widest hover:bg-${insight.color}-600 hover:text-white transition-all`}>ACK</button>
                       </div>
                     ))}
                     {insight.data.length === 0 && <p className="text-[9px] text-slate-300 italic text-center py-2">No active alerts</p>}
@@ -329,7 +280,10 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                 <div className="flex items-center gap-3">
                   <h3 className="text-xs font-black tracking-tight italic text-slate-900 uppercase">Analyzer Ledger</h3>
                   <div className="flex bg-slate-100 p-0.5 rounded-lg ml-2">
-                    {[ {val: 'checklist', label: 'Checklist'}, {val: 'complaint', label: 'Complaints'} ].map(t => (
+                    {[ 
+                      {val: 'checklist', label: 'Checklist'}, 
+                      {val: 'complaint', label: 'Complaints'} 
+                    ].map(t => (
                       <button 
                         key={t.val} 
                         onClick={() => { setHistoryType(t.val as any); setExpandedDate(null); setHistoryData([]); }} 
@@ -345,28 +299,14 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
               
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100 gap-1">
-                  {[
-                    {id: 'today', label: 'Today'}, 
-                    {id: 'yesterday', label: 'Yesterday'}, 
-                    {id: 'prev-week', label: 'Previous Week'}
-                  ].map(f => (
+                  {[{id: 'today', label: 'Today'}, {id: 'yesterday', label: 'Yesterday'}, {id: 'prev-week', label: 'Previous Week'}].map(f => (
                     <button key={f.id} onClick={() => setFilter(f.id)} className="px-2 py-1 text-[7px] font-black uppercase tracking-tighter text-slate-400 hover:text-indigo-600 transition-colors">{f.label}</button>
                   ))}
                 </div>
                 <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-100">
-                  <input 
-                    type="date" 
-                    value={dateRange.start} 
-                    onChange={e => setDateRange(prev => ({ start: e.target.value, end: prev.end }))} 
-                    className="bg-transparent text-[8px] font-black outline-none italic" 
-                  />
+                  <input type="date" value={dateRange.start} onChange={e => setDateRange(prev => ({ start: e.target.value, end: prev.end }))} className="bg-transparent text-[8px] font-black outline-none italic" />
                   <span className="text-[7px] font-black text-slate-300 uppercase px-1">To</span>
-                  <input 
-                    type="date" 
-                    value={dateRange.end} 
-                    onChange={e => setDateRange(prev => ({ start: prev.start, end: e.target.value }))} 
-                    className="bg-transparent text-[8px] font-black outline-none italic" 
-                  />
+                  <input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ start: prev.start, end: e.target.value }))} className="bg-transparent text-[8px] font-black outline-none italic" />
                   <button onClick={fetchHistory} className="bg-indigo-600 text-white p-1.5 rounded-md hover:bg-indigo-700 transition-colors shadow-lg ml-1"><i className="fas fa-search text-[8px]"></i></button>
                 </div>
               </div>
@@ -388,9 +328,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                           <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 shadow-sm">
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-[8px] font-black text-indigo-600">{e[3] || e.AssetTag}</span>
-                              <span className={`text-[6px] font-black px-1.5 py-0.5 rounded ${String(e[6]).includes('Resolved') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                {resolveStatusLabel(e[6])}
-                              </span>
+                              <span className={`text-[6px] font-black px-1.5 py-0.5 rounded ${String(e[6]).includes('Resolved') || String(e[6]).includes('Completed') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{resolveStatusLabel(e[6])}</span>
                             </div>
                             <p className="text-[8px] font-bold text-slate-400 italic truncate mt-1">"{e[4]}"</p>
                           </div>
@@ -409,17 +347,12 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                       </button>
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-2 bg-emerald-50/50 rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-2 animate-slideDown">
-                          {day.entries.map((e: any, idx: number) => {
-                            const proofUrl = e[6] || '';
-                            return (
-                              <div key={idx} className="bg-white p-2 rounded-md border border-emerald-100 flex flex-col gap-2">
-                                <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
-                                {proofUrl.length > 5 && (
-                                  <button onClick={() => setProofImage(proofUrl)} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>
-                                )}
-                              </div>
-                            );
-                          })}
+                          {day.entries.map((e: any, idx: number) => (
+                            <div key={idx} className="bg-white p-2 rounded-md border border-emerald-100 flex flex-col gap-2">
+                              <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
+                              {e[6] && e[6].length > 5 && <button onClick={() => setProofImage(e[6])} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -444,17 +377,12 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                              </div>
                            </div>
                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                              {day.entries.map((e: any, idx: number) => {
-                                const proofUrl = e[6] || '';
-                                return (
-                                  <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 flex flex-col gap-2">
-                                    <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
-                                    {proofUrl.length > 5 && (
-                                      <button onClick={() => setProofImage(proofUrl)} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                              {day.entries.map((e: any, idx: number) => (
+                                <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 flex flex-col gap-2">
+                                  <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
+                                  {e[6] && e[6].length > 5 && <button onClick={() => setProofImage(e[6])} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>}
+                                </div>
+                              ))}
                            </div>
                         </div>
                       )}

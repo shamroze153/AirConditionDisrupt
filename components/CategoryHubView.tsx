@@ -106,33 +106,42 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       let finalAssigned = 'Unassigned';
       let finalStatus = 'Open';
 
+      // 1:1:1:1 Dynamic Assignment Engine
+      const getDynamicAssignee = (techPool: string[], attendanceMap: Record<string, boolean>, catName: string) => {
+        const activeTechs = techPool.filter(t => attendanceMap[t]);
+        if (activeTechs.length === 0) return "Unassigned";
+        
+        const load: Record<string, number> = {};
+        activeTechs.forEach(t => load[t] = 0);
+        
+        tickets.forEach(t => {
+          if (String(t.category).toUpperCase() === catName.toUpperCase() && 
+              !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)) {
+            if (load[t.assignedTo] !== undefined) load[t.assignedTo]++;
+          }
+        });
+        
+        const minLoad = Math.min(...Object.values(load));
+        const candidates = activeTechs.filter(t => load[t] === minLoad);
+        return candidates[0];
+      };
+
       if (selectedCat.id === 'ac') {
         finalAssetTag = foundAsset?.tag || formData.tag;
         finalLocation = foundAsset ? `${foundAsset.campus} - ${foundAsset.floor} - ${foundAsset.room}` : 'AC Direct Entry';
-        
-        const idNum = Number(foundAsset?.id || 0);
-        if (idNum >= 1 && idNum <= 40) finalAssigned = 'Bilal';
-        else if (idNum >= 41 && idNum <= 82) finalAssigned = 'Asad';
-        else if (idNum >= 83 && idNum <= 121) finalAssigned = 'Taimoor';
-        else if (idNum >= 122 && idNum <= 161) finalAssigned = 'Saboor';
+        finalAssigned = getDynamicAssignee(TECHNICIANS, acAttendance, 'AC');
       } else if (selectedCat.id === 'electrical') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
-        
-        const activeElectricians = ELECTRICAL_TECHNICIANS.filter(t => elecAttendance[t]);
-        if (activeElectricians.length === 0) {
-          finalAssigned = "Unassigned";
-          finalStatus = "Pending Assignment – All Absent";
-        } else {
-          const elecTicketCount = tickets.filter(t => String(t.category).toUpperCase() === 'ELECTRICAL').length;
-          finalAssigned = activeElectricians[elecTicketCount % activeElectricians.length];
-        }
+        finalAssigned = getDynamicAssignee(ELECTRICAL_TECHNICIANS, elecAttendance, 'ELECTRICAL');
       } else if (selectedCat.id === 'handyman') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
-        finalAssigned = 'Sajid';
+        finalAssigned = 'Sajid'; // Single tech for GM domain
       } else {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
       }
       
+      if (finalAssigned === "Unassigned") finalStatus = "Pending Assignment";
+
       fd.append('assetTag', finalAssetTag);
       fd.append('location', finalLocation);
       fd.append('details', formData.details);
@@ -235,7 +244,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
         </section>
       </div>
 
-      {/* RAISE ISSUE MODAL - Optimized for Mobile Scrolling */}
+      {/* RAISE ISSUE MODAL */}
       {reportModal && (
         <div className="fixed inset-0 bg-slate-950/98 z-[100] flex items-center justify-center p-3 md:p-6 backdrop-blur-3xl animate-fadeIn">
           <div className="bg-white w-full max-w-xl rounded-[2rem] md:rounded-[3.5rem] p-5 md:p-12 shadow-3xl border border-white/5 relative overflow-hidden flex flex-col max-h-[85dvh] md:max-h-[90dvh]">
@@ -253,7 +262,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                </button>
              </div>
              
-             {/* Modal body with auto-scroll and responsive font sizing */}
              <div className="overflow-y-auto pr-1 hide-scroll shrink min-h-0 relative z-10 space-y-4 md:space-y-6">
                {reportStep === 1 ? (
                  <div className="grid grid-cols-1 gap-2.5 md:gap-4 animate-slideUp">

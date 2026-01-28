@@ -1,5 +1,5 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v23.0 - Admin Review Lifecycle
+ * DISRUPT_FM_ULTIMATE Backend v23.3 - Performance Analytics & Fleet Logic
  */
 
 const SPREADSHEET_ID = "1yS28yOFwRWHoSvMmIm6bEisBFHTrQLiFZc38e6pnpv4";
@@ -71,7 +71,6 @@ function doGet(e) {
         const todayStr = Utilities.formatDate(now, tz, "yyyy-MM-dd");
         const thisMonth = now.getMonth();
         const thisYear = now.getFullYear();
-        const thisQuarter = Math.floor(thisMonth / 3);
 
         const complaints = getSheetData(ss, 'Work_Orders')
           .map((row, idx) => ({
@@ -98,16 +97,39 @@ function doGet(e) {
           
           if (rFreq === 'Daily' && rDateStr === todayStr) dailyComp.push(rTag);
           if (rFreq === 'Monthly' && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) monthlyComp.push(rTag);
-          if (rFreq === 'Quarterly' && Math.floor(rDate.getMonth() / 3) === thisQuarter && rDate.getFullYear() === thisYear) quarterlyComp.push(rTag);
+          if (rFreq === 'Quarterly' && Math.floor(rDate.getMonth() / 3) === Math.floor(thisMonth / 3) && rDate.getFullYear() === thisYear) quarterlyComp.push(rTag);
         });
 
         const ptLogs = getSheetData(ss, 'Performance_Log')
           .filter(r => String(r[4] || '').toUpperCase() === category)
           .map(r => ({ Timestamp: r[0], tech: r[1], points: Number(r[2]), reason: r[3], category: r[4] }));
 
+        // Real-time Operational Telemetry Logic
+        const operationalAssetMap = {};
+        getSheetData(ss, 'Master_Assets').forEach(r => {
+          if (String(r[11]).toUpperCase() === category) {
+             const status = String(r[8]).trim().toUpperCase();
+             if (status === 'ACTIVE' || status === 'MAINTENANCE') operationalAssetMap[String(r[1]).trim().toUpperCase()] = true;
+          }
+        });
+
         let gStocks = {};
+        let assetUsage = {};
         getSheetData(ss, 'Gas_Ledger').forEach(row => {
-          gStocks[row[2]] = (gStocks[row[2]] || 0) + (Number(row[3]) || 0);
+          const actionType = String(row[1]).toUpperCase();
+          const gasType = row[2];
+          const amount = Number(row[3]) || 0;
+          const ledgerCat = String(row[6]).toUpperCase();
+
+          gStocks[gasType] = (gStocks[gasType] || 0) + amount;
+
+          // Only log usage for assets currently tagged as operational
+          if (actionType === 'USAGE' && ledgerCat === category) {
+            const tag = String(row[5]).trim().toUpperCase();
+            if (operationalAssetMap[tag]) {
+              assetUsage[tag] = (assetUsage[tag] || 0) + Math.abs(amount);
+            }
+          }
         });
 
         const insightData = getSheetData(ss, 'System_Insights')
@@ -117,7 +139,13 @@ function doGet(e) {
         return createJsonResponse({ 
           complaints, 
           performanceLogs: ptLogs, 
-          hvac: { daily: dailyComp, monthly: monthlyComp, quarterly: quarterlyComp, gasStocks: gStocks },
+          hvac: { 
+            daily: dailyComp, 
+            monthly: monthlyComp, 
+            quarterly: quarterlyComp, 
+            gasStocks: gStocks,
+            assetUsage: assetUsage
+          },
           acknowledgedInsights: insightData
         });
 
@@ -164,6 +192,30 @@ function doPost(e) {
 
   try {
     switch(action) {
+      case 'log_gas_tx':
+        const amountTx = Number(params.amount);
+        const actionTypeTx = String(params.type).toUpperCase();
+        ss.getSheetByName('Gas_Ledger').appendRow([
+          new Date(), 
+          actionTypeTx, 
+          params.gasType, 
+          actionTypeTx === 'REFILL' ? Math.abs(amountTx) : -Math.abs(amountTx), 
+          params.tech, 
+          params.refTicket || 'N/A', 
+          category
+        ]);
+        
+        if (actionTypeTx === 'USAGE' && params.refTicket && params.refTicket !== 'HUB_REFILL') {
+          ss.getSheetByName('System_Insights').appendRow([
+            new Date(),
+            category,
+            params.refTicket,
+            'Refill Event',
+            `Maintenance: ${Math.abs(amountTx)}kg of ${params.gasType} refilled by ${params.tech}`
+          ]);
+        }
+        break;
+
       case 'checklist_entry':
         let photoData = params.photo || '';
         ss.getSheetByName('Checklist_Audit').appendRow([
@@ -191,7 +243,23 @@ function doPost(e) {
           params.gasType || ''
         ]]);
         if (params.gasUsed && Number(params.gasUsed) > 0) {
-          ss.getSheetByName('Gas_Ledger').appendRow([new Date(), 'USAGE', params.gasType, -Math.abs(Number(params.gasUsed)), params.resolvedBy.split(' • ')[0], params.assetTag, category]);
+          const techName = params.resolvedBy.split(' • ')[0] || 'Hub Specialist';
+          ss.getSheetByName('Gas_Ledger').appendRow([
+            new Date(), 
+            'USAGE', 
+            params.gasType, 
+            -Math.abs(Number(params.gasUsed)), 
+            techName, 
+            params.assetTag, 
+            category
+          ]);
+          ss.getSheetByName('System_Insights').appendRow([
+            new Date(),
+            category,
+            params.assetTag,
+            'Refill Event',
+            `Work Order: ${Math.abs(Number(params.gasUsed))}kg of ${params.gasType} utilized during resolution.`
+          ]);
         }
         break;
 
@@ -202,8 +270,6 @@ function doPost(e) {
         const points = Number(params.points);
         const tech = params.technician;
         
-        // 1. Update Work Order: Status to Completed, set StarRating, PointsAwarded, AdminReviewDate
-        // StarRating is Column 14 (N), Points Column 15 (O), ReviewDate Column 16 (P)
         woSheetRev.getRange(rowIndexRev, 7).setValue('Completed');
         woSheetRev.getRange(rowIndexRev, 14, 1, 3).setValues([[
           stars, 
@@ -211,7 +277,6 @@ function doPost(e) {
           new Date()
         ]]);
 
-        // 2. Award Points to Performance Log
         ss.getSheetByName('Performance_Log').appendRow([
           new Date(), 
           tech, 
