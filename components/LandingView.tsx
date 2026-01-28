@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
@@ -27,12 +26,12 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
           ))}
         </div>
 
-        {/* Cinematic Rocket Streak - Subtle and Professional */}
+        {/* Cinematic Rocket Streak */}
         <div className="absolute top-1/3 left-[-10%] w-[120%] h-[1px] bg-gradient-to-r from-transparent via-indigo-500 to-transparent rotate-[-15deg] opacity-20 animate-streakPass"></div>
         <div className="absolute bottom-1/4 right-[-10%] w-[120%] h-[1px] bg-gradient-to-r from-transparent via-blue-500 to-transparent rotate-[10deg] opacity-10 animate-streakPassReverse"></div>
       </div>
 
-      <div className="relative z-20 px-6 max-w-4xl w-full flex flex-col items-center">
+      <div className="relative z-20 px-6 max-w-5xl w-full flex flex-col items-center">
         <header className="mb-12 animate-heroReveal">
           {/* Version Tag */}
           <div className="inline-flex items-center gap-2 bg-indigo-950/50 border border-indigo-500/30 px-3 py-1 rounded-full mb-6 backdrop-blur-md">
@@ -41,15 +40,16 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
           </div>
 
           {/* 3D-ish Logo with Chrome Shimmer */}
-          <div className="relative group">
-            <h1 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-300 to-slate-600 leading-none tracking-tighter mb-4 italic transition-transform duration-700 group-hover:scale-[1.02] cursor-default drop-shadow-2xl">
+          <div className="relative group px-4">
+            <h1 className="text-7xl md:text-9xl font-black text-white leading-none tracking-tighter mb-2 italic transition-transform duration-700 group-hover:scale-[1.02] cursor-default drop-shadow-[0_20px_50px_rgba(79,70,229,0.3)]">
               DISRUPT
-              {/* Glitch Overlay Effect */}
-              <span className="absolute inset-0 text-indigo-500/20 blur-[2px] translate-x-[2px] translate-y-[2px] animate-pulse">DISRUPT</span>
             </h1>
+            <h2 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-blue-500 tracking-[0.2em] italic uppercase leading-none mt-2 opacity-90">
+              WORKPLACE
+            </h2>
           </div>
           
-          <div className="max-w-md mx-auto relative">
+          <div className="max-w-md mx-auto relative mt-8">
             <div className="h-[1px] w-12 bg-indigo-500/50 mx-auto mb-6"></div>
             <p className="text-[10px] md:text-xs font-bold text-slate-400 leading-relaxed tracking-[0.2em] uppercase italic px-4 opacity-80">
               Operations Control <span className="text-white">&</span> Logistics Optimization
@@ -58,17 +58,17 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
         </header>
 
         {/* Action Button */}
-        <div className="w-full max-w-[240px] animate-btnFadeIn" style={{ animationDelay: '0.6s' }}>
+        <div className="w-full max-w-[260px] animate-btnFadeIn" style={{ animationDelay: '0.6s' }}>
           <button 
             onClick={onProceed} 
-            className="w-full group relative h-14 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-black text-[10px] transition-all duration-500 border border-white/10 overflow-hidden shadow-2xl active:scale-95"
+            className="w-full group relative h-16 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-black text-[10px] transition-all duration-500 border border-white/10 overflow-hidden shadow-2xl active:scale-95"
           >
             {/* Background Glow on Hover */}
             <div className="absolute inset-0 bg-indigo-600 opacity-0 group-hover:opacity-10 transition-opacity duration-500"></div>
             
-            <div className="relative z-10 flex items-center justify-between px-6 h-full">
+            <div className="relative z-10 flex items-center justify-between px-8 h-full">
               <span className="tracking-[0.4em] uppercase italic">INITIALIZE HUB</span>
-              <div className="w-8 h-8 bg-white text-slate-950 rounded-xl flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white group-hover:rotate-[360deg] transition-all duration-700 shadow-xl">
+              <div className="w-10 h-10 bg-white text-slate-950 rounded-xl flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white group-hover:rotate-[360deg] transition-all duration-700 shadow-xl">
                 <i className="fas fa-arrow-right text-[10px]"></i>
               </div>
             </div>
