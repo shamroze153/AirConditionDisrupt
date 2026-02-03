@@ -1,8 +1,8 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v23.3 - Performance Analytics & Fleet Logic
+ * DISRUPT_FM_ULTIMATE Backend v23.5 - SLA & Aging Analytics
  */
 
-const SPREADSHEET_ID = "1yS28yOFwRWHoSvMmIm6bEisBFHTrQLiFZc38e6pnpv4";
+const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE";
 
 function initializeSheets(ss) {
   if (!ss) {
@@ -16,7 +16,7 @@ function initializeSheets(ss) {
 
   const headers = {
     'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category'],
-    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate'],
+    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp'],
     'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Proof', 'Category', 'Frequency'],
     'Performance_Log': ['Timestamp', 'Technician', 'Points', 'Reason', 'Category'],
     'Material_Demands': ['Timestamp', 'Technician', 'Details', 'Status', 'Category'],
@@ -78,7 +78,8 @@ function doGet(e) {
             assetTag: row[3], details: row[4], assignedTo: row[5], status: row[6],
             resolvedBy: row[7], workType: row[8], remarks: row[9], gasUsed: row[10], gasType: row[11],
             complaintType: row[12] || 'Reactive',
-            starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15]
+            starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
+            resolutionTimestamp: row[16]
           }))
           .filter(t => String(t.category).toUpperCase() === category);
         
@@ -104,7 +105,6 @@ function doGet(e) {
           .filter(r => String(r[4] || '').toUpperCase() === category)
           .map(r => ({ Timestamp: r[0], tech: r[1], points: Number(r[2]), reason: r[3], category: r[4] }));
 
-        // Real-time Operational Telemetry Logic
         const operationalAssetMap = {};
         getSheetData(ss, 'Master_Assets').forEach(r => {
           if (String(r[11]).toUpperCase() === category) {
@@ -123,7 +123,6 @@ function doGet(e) {
 
           gStocks[gasType] = (gStocks[gasType] || 0) + amount;
 
-          // Only log usage for assets currently tagged as operational
           if (actionType === 'USAGE' && ledgerCat === category) {
             const tag = String(row[5]).trim().toUpperCase();
             if (operationalAssetMap[tag]) {
@@ -155,7 +154,8 @@ function doGet(e) {
           assetTag: row[3], details: row[4], assignedTo: row[5], status: row[6],
           resolvedBy: row[7], workType: row[8], remarks: row[9], gasUsed: row[10], gasType: row[11],
           complaintType: row[12] || 'Reactive',
-          starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15]
+          starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
+          resolutionTimestamp: row[16]
         }));
         const allLogs = getSheetData(ss, 'Performance_Log').map(r => ({ Timestamp: r[0], tech: r[1], points: Number(r[2]), reason: r[3], category: r[4] }));
         const seatingData = getSheetData(ss, 'Seating_Plan').map(row => ({
@@ -234,13 +234,17 @@ function doPost(e) {
       case 'resolve_ticket':
         const woSheetRes = ss.getSheetByName('Work_Orders');
         const rowIndexRes = Number(params.rowIndex);
-        woSheetRes.getRange(rowIndexRes, 7, 1, 6).setValues([[
+        // Updating through column 17 (ResolutionTimestamp)
+        woSheetRes.getRange(rowIndexRes, 7, 1, 11).setValues([[
           params.status, 
           params.resolvedBy, 
           params.workType || '', 
           params.remarks || '', 
           params.gasUsed || 0, 
-          params.gasType || ''
+          params.gasType || '',
+          params.complaintType || '', // Ensure we don't overwrite complaintType if passed
+          '', '', '', // Placeholder for rating/points/admin date
+          new Date() // ResolutionTimestamp (Column 17)
         ]]);
         if (params.gasUsed && Number(params.gasUsed) > 0) {
           const techName = params.resolvedBy.split(' • ')[0] || 'Hub Specialist';
@@ -269,6 +273,7 @@ function doPost(e) {
         const stars = Number(params.stars);
         const points = Number(params.points);
         const tech = params.technician;
+        const assetTagRev = params.assetTag;
         
         woSheetRev.getRange(rowIndexRev, 7).setValue('Completed');
         woSheetRev.getRange(rowIndexRev, 14, 1, 3).setValues([[
@@ -284,6 +289,18 @@ function doPost(e) {
           `Evaluation Rating: ${stars} Stars`, 
           category
         ]);
+
+        // Lifecycle Restore Trigger: Return to ACTIVE on admin evaluate
+        if (category === 'AC' && assetTagRev && assetTagRev !== 'N/A') {
+          const astSheet = ss.getSheetByName('Master_Assets');
+          const astData = astSheet.getDataRange().getValues();
+          for (let i = 1; i < astData.length; i++) {
+            if (String(astData[i][1]).trim().toUpperCase() === String(assetTagRev).trim().toUpperCase()) {
+              astSheet.getRange(i + 1, 9).setValue('Active');
+              break;
+            }
+          }
+        }
         break;
 
       case 'complain':
@@ -344,11 +361,11 @@ function doPost(e) {
         break;
 
       case 'update_asset_status':
-        const astSheet = ss.getSheetByName('Master_Assets');
-        const astData = astSheet.getDataRange().getValues();
-        for (let i = 1; i < astData.length; i++) {
-          if (String(astData[i][1]).trim().toUpperCase() === String(params.tag).trim().toUpperCase()) {
-            astSheet.getRange(i + 1, 9).setValue(params.status);
+        const astSheetU = ss.getSheetByName('Master_Assets');
+        const astDataU = astSheetU.getDataRange().getValues();
+        for (let i = 1; i < astDataU.length; i++) {
+          if (String(astDataU[i][1]).trim().toUpperCase() === String(params.tag).trim().toUpperCase()) {
+            astSheetU.getRange(i + 1, 9).setValue(params.status);
             break;
           }
         }

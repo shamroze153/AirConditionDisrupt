@@ -10,6 +10,7 @@ interface Props {
 
 const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
   const CURRENT_YEAR = new Date().getFullYear();
+  const CURRENT_MONTH_IDX = new Date().getMonth();
 
   const parseHubDate = (dateStr: any) => {
     if (!dateStr) return null;
@@ -52,37 +53,56 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
     return { total, resolved, pending };
   }, [tickets]);
 
-  // Yearly Charts Logic - Refined for Preventive vs Reactive
+  // Yearly Charts Logic - INDIVIDUAL MONTH-WISE ISOLATION
   const yearlyPerformance = useMemo(() => {
     return YEAR_MONTHS.map(m => {
+      // Isolate tickets strictly for this specific month
       const monthly = tickets.filter(t => parseHubDate(t.date)?.getMonth() === m.monthIdx);
       
       const proactive = monthly.filter(t => t.complaintType === 'Proactive').length;
       const reactive = monthly.filter(t => t.complaintType === 'Reactive' || !t.complaintType).length;
       
       const resolved = monthly.filter(t => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Completed'].includes(t.status));
-      const totalDays = resolved.reduce((acc, t) => {
-        const raised = parseHubDate(t.date);
-        const resMatch = t.resolvedBy?.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
-        const completionDate = resMatch ? new Date(resMatch[0]) : new Date();
-        return acc + (completionDate.getTime() - raised!.getTime()) / (1000 * 3600 * 24);
-      }, 0);
+      
+      let totalAgingHours = 0;
+      let slaBreachedCount = 0;
+      let totalResolvedCount = resolved.length;
 
-      const overdue = monthly.filter(t => {
-        const raised = parseHubDate(t.date);
-        if (!raised) return false;
-        const resMatch = t.resolvedBy?.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
-        const completionDate = resMatch ? new Date(resMatch[0]) : new Date();
-        return (completionDate.getTime() - raised.getTime()) / (1000 * 3600 * 24) > 7;
-      }).length;
+      resolved.forEach(t => {
+        const launched = parseHubDate(t.date);
+        const resolvedTs = parseHubDate(t.resolutionTimestamp); 
+        
+        // Fallback to AdminReviewDate or current if resolution timestamp is missing
+        const finalResolved = resolvedTs || parseHubDate(t.adminReviewDate) || new Date();
+        
+        if (launched) {
+          const diffHrs = (finalResolved.getTime() - launched.getTime()) / (1000 * 3600);
+          totalAgingHours += diffHrs;
+          
+          // Breach Threshold check per task
+          const threshold = t.workType === 'Major' ? 48 : 24;
+          if (diffHrs > threshold) slaBreachedCount++;
+        }
+      });
+
+      // Average only calculated against this month's specific resolution set
+      const avgAgingHours = totalResolvedCount > 0 ? parseFloat((totalAgingHours / totalResolvedCount).toFixed(1)) : 0;
+      const withinSlaCount = totalResolvedCount - slaBreachedCount;
 
       return {
         month: m.key,
+        monthIdx: m.monthIdx,
         proactive,
         reactive,
-        totalCount: proactive + reactive,
-        avgResolution: resolved.length > 0 ? parseFloat((totalDays / resolved.length).toFixed(1)) : 0,
-        overdueCount: overdue
+        totalCount: monthly.length,
+        avgResolutionHours: avgAgingHours,
+        withinSlaCount,
+        slaBreachedCount,
+        overdueCount: monthly.filter(t => {
+          const raised = parseHubDate(t.date);
+          if (!raised || ['Resolved', 'Completed'].includes(t.status)) return false;
+          return (new Date().getTime() - raised.getTime()) / (1000 * 3600 * 24) > 7;
+        }).length
       };
     });
   }, [tickets, YEAR_MONTHS]);
@@ -149,7 +169,7 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-          {/* CHART 1: STRATEGY MIX - REFINED COLORS & LOGIC */}
+          {/* CHART 1: STRATEGY MIX */}
           <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
             <div className="mb-8">
               <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">Maintenance Strategy Mix</h4>
@@ -162,80 +182,88 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
                 const maxInYear = Math.max(...yearlyPerformance.map(x => x.totalCount), 1);
                 const totalHeight = (d.totalCount / maxInYear) * 100;
                 const proPct = (d.proactive / total) * 100;
+                const isCurrentMonth = d.monthIdx === CURRENT_MONTH_IDX;
+                
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-3 group/bar h-full justify-end">
-                    <div className="relative w-full flex flex-col-reverse items-end justify-start h-full gap-0.5 rounded-t-md overflow-hidden" style={{ height: `${Math.max(totalHeight, 8)}%` }}>
+                    <div className={`relative w-full flex flex-col-reverse items-end justify-start h-full gap-0.5 rounded-t-md overflow-hidden ${isCurrentMonth ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}`} style={{ height: `${Math.max(totalHeight, 8)}%` }}>
                       <div className="w-full bg-indigo-500 transition-all group-hover/bar:brightness-110" style={{ height: `${proPct}%` }} title={`Preventive: ${d.proactive}`}></div>
-                      {/* Reactive color set to black as requested */}
                       <div className="w-full bg-black transition-all group-hover/bar:brightness-110" style={{ height: `${100 - proPct}%` }} title={`Reactive: ${d.reactive}`}></div>
                     </div>
-                    <span className="text-[7px] md:text-[9px] font-black text-slate-300 uppercase italic group-hover/bar:text-slate-950">{d.month}</span>
+                    <span className={`text-[7px] md:text-[9px] font-black uppercase italic ${isCurrentMonth ? 'text-indigo-600 underline decoration-2' : 'text-slate-300'}`}>{d.month}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* CHART 2: WORK ORDER AGING & SLA BREACH (INDIVIDUAL MONTHS) */}
+          <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
+            <div className="mb-8">
+              <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">Work Order Aging & SLA</h4>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Non-Cumulative Monthly Breakdown</p>
+            </div>
+            
+            <div className="flex-1 flex items-end justify-between gap-1.5 md:gap-3 px-1">
+              {yearlyPerformance.map((d, i) => {
+                const totalResolved = d.withinSlaCount + d.slaBreachedCount || 1;
+                const maxResolvedInYear = Math.max(...yearlyPerformance.map(x => x.withinSlaCount + x.slaBreachedCount), 1);
+                const height = (totalResolved / maxResolvedInYear) * 100;
+                const breachedPct = (d.slaBreachedCount / totalResolved) * 100;
+                const isCurrentMonth = d.monthIdx === CURRENT_MONTH_IDX;
+                
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-3 group/over h-full justify-end">
+                    <div className={`relative w-full flex flex-col items-end h-full rounded-t-md overflow-hidden ${isCurrentMonth ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}`} style={{ height: `${Math.max(height, 8)}%` }}>
+                       <div className="w-full bg-rose-500 transition-all" style={{ height: `${breachedPct}%` }}></div>
+                       <div className="w-full bg-emerald-500 transition-all" style={{ height: `${100 - breachedPct}%` }}></div>
+                       {d.avgResolutionHours > 0 && (
+                         <div className="absolute -top-8 bg-slate-950 text-white text-[6px] font-black px-1 py-0.5 rounded shadow-2xl opacity-0 group-hover/over:opacity-100 transition-all whitespace-nowrap z-20">
+                            Avg: {d.avgResolutionHours}h
+                         </div>
+                       )}
+                    </div>
+                    <span className={`text-[7px] md:text-[9px] font-black uppercase italic ${isCurrentMonth ? 'text-indigo-600 underline decoration-2' : 'text-slate-300'}`}>{d.month}</span>
                   </div>
                 );
               })}
             </div>
             <div className="mt-6 flex justify-center gap-4 border-t border-slate-50 pt-4">
               <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 bg-indigo-500 rounded-full shadow-[0_0_8px_#6366f1]"></div>
-                 <span className="text-[8px] font-black text-slate-400 uppercase italic">Preventive</span>
+                 <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                 <span className="text-[8px] font-black text-slate-400 uppercase italic">On-SLA</span>
               </div>
               <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 bg-black rounded-full shadow-[0_0_8px_#000]"></div>
-                 <span className="text-[8px] font-black text-slate-400 uppercase italic">Reactive</span>
+                 <div className="w-2 h-2 bg-rose-500 rounded-full"></div>
+                 <span className="text-[8px] font-black text-slate-400 uppercase italic">Breached</span>
               </div>
             </div>
           </div>
 
-          {/* CHART 2: WORK ORDER AGING */}
-          <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
-            <div className="mb-8">
-              <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">Work Order Aging</h4>
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Monthly Avg Resolution (Days)</p>
-            </div>
-            
-            <div className="flex-1 flex items-end justify-between gap-1.5 md:gap-3 px-1">
-              {yearlyPerformance.map((d, i) => {
-                const max = Math.max(...yearlyPerformance.map(x => x.avgResolution), 5);
-                const height = (d.avgResolution / max) * 100;
-                return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-3 group/over h-full justify-end">
-                    <div className="relative w-full flex justify-center items-end h-full">
-                       <div className="w-full bg-emerald-100 rounded-t-lg transition-all group-hover/over:bg-emerald-600 group-hover/over:shadow-lg" style={{ height: `${Math.max(height, 8)}%` }}></div>
-                       {d.avgResolution > 0 && (
-                         <div className="absolute -top-8 bg-slate-950 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-2xl opacity-0 group-hover/over:opacity-100 transition-all">
-                            {d.avgResolution}d
-                         </div>
-                       )}
-                    </div>
-                    <span className="text-[7px] md:text-[9px] font-black text-slate-300 uppercase italic group-hover/over:text-slate-950">{d.month}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* CHART 3: % OVERDUE WORK ORDERS */}
+          {/* CHART 3: % CRITICAL AGING ( > 7 DAYS) */}
           <div className="bg-white p-6 md:p-8 rounded-[2rem] border border-slate-100 shadow-lg relative overflow-hidden flex flex-col min-h-[400px]">
             <div className="mb-8">
               <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">% Overdue Work Orders</h4>
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Critical SLA Breach Count (&gt; 7 Days)</p>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic">Current Month Integrity Check</p>
             </div>
             
             <div className="flex-1 flex items-end justify-between gap-1.5 md:gap-3 px-1">
               {yearlyPerformance.map((d, i) => {
                 const max = Math.max(...yearlyPerformance.map(x => x.overdueCount), 1);
                 const height = (d.overdueCount / max) * 100;
+                const isCurrentMonth = d.monthIdx === CURRENT_MONTH_IDX;
+                
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-3 group/over h-full justify-end">
                     <div className="relative w-full flex justify-center items-end h-full">
-                       <div className={`w-full rounded-t-lg transition-all ${d.overdueCount > 0 ? 'bg-rose-500 shadow-lg' : 'bg-slate-50'}`} style={{ height: `${Math.max(height, 8)}%` }}></div>
+                       <div className={`w-full rounded-t-lg transition-all ${isCurrentMonth ? 'ring-2 ring-indigo-600 ring-offset-2' : ''} ${d.overdueCount > 0 ? 'bg-rose-500 shadow-lg' : 'bg-slate-50'}`} style={{ height: `${Math.max(height, 8)}%` }}></div>
                        {d.overdueCount > 0 && (
-                         <div className="absolute -top-8 bg-slate-950 text-white text-[7px] font-black px-1.5 py-0.5 rounded opacity-0 group-hover/over:opacity-100 transition-all">
+                         <div className="absolute -top-8 bg-slate-950 text-white text-[7px] font-black px-1.5 py-0.5 rounded opacity-0 group-hover/over:opacity-100 transition-all z-20">
                             {d.overdueCount}
                          </div>
                        )}
                     </div>
-                    <span className="text-[7px] md:text-[9px] font-black text-slate-300 uppercase italic group-hover/over:text-slate-950">{d.month}</span>
+                    <span className={`text-[7px] md:text-[9px] font-black uppercase italic ${isCurrentMonth ? 'text-indigo-600 underline decoration-2' : 'text-slate-300'}`}>{d.month}</span>
                   </div>
                 );
               })}
@@ -391,7 +419,7 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
       {/* FOOTER STRIP */}
       <div className="pt-12 border-t border-slate-100 flex flex-col items-center gap-6 opacity-30">
          <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-[0.5em] italic text-center leading-relaxed">
-           Authorized Command Environment &bull; Disrupt Facilities Suite &bull; Yearly Analytics v19.0
+           Authorized Command Environment &bull; Disrupt Facilities Suite &bull; Yearly Analytics v20.0
          </p>
       </div>
     </div>

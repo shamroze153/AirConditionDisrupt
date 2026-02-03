@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, StatsResponse, CategoryKey, Tool } from '../types.ts';
 import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES, TECHNICIANS, ELECTRICAL_TECHNICIANS } from '../constants.ts';
-import { submitDemand, postAction, fetchTools, updateTool, addTool, deleteTool, updateAssetStatus } from '../services/api.ts';
+import { submitDemand, postAction, fetchTools, updateTool, addTool, deleteTool, updateAssetStatus, updatePoints } from '../services/api.ts';
 
 interface Props {
   category: CategoryKey;
@@ -139,29 +139,49 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const handleResolve = async () => {
     if (!resolveTicket || solvingTechs.length === 0) return;
     setIsResolving(true);
+    
     const solversStr = solvingTechs.join(' & ');
-    const fd = new FormData();
-    fd.append('action', 'resolve_ticket');
-    fd.append('category', category.toUpperCase());
-    fd.append('rowIndex', String(resolveTicket.rowIndex));
-    fd.append('assetTag', resolveTicket.assetTag);
-    fd.append('status', 'Resolved – Pending Admin Review');
-    fd.append('resolvedBy', `${solversStr} • ${new Date().toLocaleString()}`);
-    fd.append('workType', resolveType);
-    fd.append('remarks', resolveRemarks);
-    fd.append('gasUsed', String(gasUsedYesNo === 'Yes' ? gasAmount : 0));
-    fd.append('gasType', gasUsedYesNo === 'Yes' ? selectedGasType : '');
+    const now = new Date();
+    
+    // TASK 1: Work Order Time Tracking & Aging Logic
+    const launchDate = new Date(resolveTicket.date);
+    const agingHours = (now.getTime() - launchDate.getTime()) / (1000 * 3600);
+    const slaThreshold = resolveType === 'Minor' ? 24 : 48; 
     
     try {
+      // TASK 2: Automatic SLA Breach Penalty Logic
+      if (agingHours > slaThreshold) {
+        const penalty = resolveType === 'Minor' ? -10 : -20;
+        showToast(`SLA BREACH: RESOLVED IN ${Math.round(agingHours)} HOURS. Deducting points...`);
+        for (const tech of solvingTechs) {
+          await updatePoints(category, tech, penalty, `SLA BREACH: ${resolveType} Ticket resolved in ${Math.round(agingHours)} hrs (SLA: ${slaThreshold} hrs)`);
+        }
+      }
+
+      const fd = new FormData();
+      fd.append('action', 'resolve_ticket');
+      fd.append('category', category.toUpperCase());
+      fd.append('rowIndex', String(resolveTicket.rowIndex));
+      fd.append('assetTag', resolveTicket.assetTag);
+      fd.append('status', 'Resolved – Pending Admin Review');
+      fd.append('resolvedBy', `${solversStr} • ${now.toLocaleString()}`);
+      fd.append('workType', resolveType);
+      fd.append('remarks', resolveRemarks);
+      fd.append('gasUsed', String(gasUsedYesNo === 'Yes' ? gasAmount : 0));
+      fd.append('gasType', gasUsedYesNo === 'Yes' ? selectedGasType : '');
+      
       await postAction(fd);
-      onRefresh();
+      onRefresh(); 
       setResolveTicket(null);
       setSolvingTechs([]);
       setResolveRemarks('');
       setGasAmount('0');
-      showToast("Sync Successful – Pending Review");
-    } catch (e) { showToast("Sync Failure"); }
-    finally { setIsResolving(false); }
+      showToast("Resolution Synchronized Successfully");
+    } catch (e) { 
+      showToast("Registry Synchronization Failure"); 
+    } finally { 
+      setIsResolving(false); 
+    }
   };
 
   const handleTechEraIssueSubmit = async () => {
@@ -211,7 +231,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
       }
       setShowIssueModal(false);
       setIssueFormData({ campus: '', floor: '', details: '', selectedTags: [], complaintType: 'Proactive', immediateResolve: false });
-      onRefresh();
+      onRefresh(); 
       showToast(`Protocol Executed for ${issueFormData.selectedTags.length} identifiers.`);
     } catch (e) {
       showToast("Transmission Error");
@@ -439,7 +459,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                  <h3 className="text-xl md:text-3xl font-black text-slate-950 leading-none italic uppercase tracking-tighter">Era Deployment</h3>
                  <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase mt-2 tracking-widest italic">Facility Mapping Search</p>
                </div>
-               <button onClick={() => setShowIssueModal(false)} className="w-12 h-12 bg-white rounded-2xl text-slate-300 shadow-inner flex items-center justify-center border border-slate-50"><i className="fas fa-times text-xl"></i></button>
+               <button onClick={() => setShowIssueModal(false)} className="w-12 h-12 bg-white rounded-2xl text-slate-300 shadow-inner flex items-center justify-center border border-slate-100"><i className="fas fa-times text-xl"></i></button>
              </div>
 
              <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-6 hide-scroll relative z-10">

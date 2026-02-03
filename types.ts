@@ -32,6 +32,7 @@ export interface Ticket {
   starRating?: number;
   pointsAwarded?: number;
   adminReviewDate?: string;
+  resolutionTimestamp?: string;
 }
 
 export interface Seat {

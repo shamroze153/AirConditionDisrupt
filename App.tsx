@@ -78,9 +78,47 @@ const App: React.FC = () => {
           fetchStats(currentCategory.id)
         ]);
         
-        const newTickets = statData.complaints || [];
+        const rawTickets = statData.complaints || [];
         
-        if (newTickets.length > prevTicketCount.current && prevTicketCount.current > 0) {
+        // CORE LOGIC: AC Asset Status Derivation (Strictly Sheet-Driven)
+        let processedAssets = [...(assetList || [])];
+        if (currentCategory.id === 'ac') {
+          // Rule: Any AC with at least one "Open" complaint moves to Maintenance.
+          // Rule: If all complaints are "Resolved..." or "Completed", moves to Active.
+          const maintenanceTags = new Set(
+            rawTickets
+              .filter(t => {
+                const s = String(t.status || '').trim();
+                const isFixed = s === 'Resolved – Pending Admin Review' || s === 'Completed';
+                return !isFixed && t.assetTag && t.assetTag !== 'N/A' && t.assetTag !== '';
+              })
+              .map(t => String(t.assetTag).trim().toUpperCase())
+          );
+
+          processedAssets = processedAssets.map(a => {
+            const tag = String(a.tag).trim().toUpperCase();
+            
+            // Debug Logging for Step 5
+            const tagTickets = rawTickets.filter(t => String(t.assetTag).trim().toUpperCase() === tag);
+            const openCount = tagTickets.filter(t => !['Resolved – Pending Admin Review', 'Completed'].includes(t.status)).length;
+            const resolvedCount = tagTickets.filter(t => ['Resolved – Pending Admin Review', 'Completed'].includes(t.status)).length;
+            const newStatus = maintenanceTags.has(tag) ? 'Maintenance' : 'Active';
+            
+            if (a.status !== newStatus) {
+              console.log(`[AC STATUS CHANGE] ${tag}: ${a.status} -> ${newStatus} (Open: ${openCount}, Resolved: ${resolvedCount})`);
+            }
+
+            if (['Active', 'Maintenance'].includes(a.status)) {
+              return {
+                ...a,
+                status: newStatus
+              };
+            }
+            return a;
+          });
+        }
+
+        if (rawTickets.length > prevTicketCount.current && prevTicketCount.current > 0) {
           if (audioEnabled) {
             beepAudio.current?.play().catch(() => {});
           }
@@ -88,10 +126,10 @@ const App: React.FC = () => {
           setNewTicketPulse(true);
           setTimeout(() => setNewTicketPulse(false), 5000);
         }
-        prevTicketCount.current = newTickets.length;
+        prevTicketCount.current = rawTickets.length;
 
-        setAssets(assetList || []);
-        setTickets(newTickets);
+        setAssets(processedAssets);
+        setTickets(rawTickets);
         setStats(statData);
       }
       setConnError(false);
@@ -108,7 +146,7 @@ const App: React.FC = () => {
     const timer = setTimeout(() => refreshData(), 100);
     const interval = setInterval(() => {
       refreshData(true);
-    }, 20000);
+    }, 10000); // 10s refresh for near real-time sync
     return () => {
       clearTimeout(timer);
       clearInterval(interval);
