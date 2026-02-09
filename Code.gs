@@ -1,5 +1,5 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v23.5 - SLA & Aging Analytics
+ * DISRUPT_FM_ULTIMATE Backend v23.9 - Multi-Responder Attribution
  */
 
 const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE";
@@ -17,7 +17,7 @@ function initializeSheets(ss) {
   const headers = {
     'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category'],
     'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp'],
-    'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Proof', 'Category', 'Frequency'],
+    'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Reference', 'Category', 'Frequency'],
     'Performance_Log': ['Timestamp', 'Technician', 'Points', 'Reason', 'Category'],
     'Material_Demands': ['Timestamp', 'Technician', 'Details', 'Status', 'Category'],
     'Gas_Ledger': ['Timestamp', 'ActionType', 'GasType', 'Amount', 'Technician', 'Reference', 'Category'],
@@ -51,19 +51,19 @@ function doGet(e) {
         const toolData = getSheetData(ss, 'Master_Tools');
         const filteredTools = toolData.filter(r => String(r[0]).toUpperCase() === category);
         return createJsonResponse(filteredTools.map(r => ({ 
-          category: r[0], 
-          name: r[1], 
+          category: String(r[0] || '').trim(), 
+          name: String(r[1] || '').trim(), 
           qty: Number(r[2]), 
-          technician: r[3] || '' 
+          technician: String(r[3] || '').trim() 
         })));
 
       case 'get_assets':
         const assetData = getSheetData(ss, 'Master_Assets');
         const filteredAssets = assetData.filter(row => String(row[11] || '').toUpperCase() === category);
         return createJsonResponse(filteredAssets.map(row => ({
-          id: row[0], tag: row[1], room: row[2], location: row[3], campus: row[4],
-          floor: row[5], brand: row[6], cap: row[7], status: row[8], year: row[9],
-          healthScore: row[10] || 100, category: row[11]
+          id: row[0], tag: String(row[1] || '').trim(), room: String(row[2] || '').trim(), location: String(row[3] || '').trim(), campus: String(row[4] || '').trim(),
+          floor: String(row[5] || '').trim(), brand: String(row[6] || '').trim(), cap: row[7], status: String(row[8] || '').trim(), year: row[9],
+          healthScore: row[10] || 100, category: String(row[11] || '').trim()
         })));
 
       case 'get_stats':
@@ -74,9 +74,9 @@ function doGet(e) {
 
         const complaints = getSheetData(ss, 'Work_Orders')
           .map((row, idx) => ({
-            rowIndex: idx + 2, date: row[0], category: row[1], location: row[2],
-            assetTag: row[3], details: row[4], assignedTo: row[5], status: row[6],
-            resolvedBy: row[7], workType: row[8], remarks: row[9], gasUsed: row[10], gasType: row[11],
+            rowIndex: idx + 2, date: row[0], category: String(row[1] || '').trim(), location: String(row[2] || '').trim(),
+            assetTag: String(row[3] || '').trim(), details: String(row[4] || '').trim(), assignedTo: String(row[5] || '').trim(), status: String(row[6] || '').trim(),
+            resolvedBy: String(row[7] || '').trim(), workType: String(row[8] || '').trim(), remarks: String(row[9] || '').trim(), gasUsed: row[10], gasType: String(row[11] || '').trim(),
             complaintType: row[12] || 'Reactive',
             starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
             resolutionTimestamp: row[16]
@@ -89,12 +89,14 @@ function doGet(e) {
         const quarterlyComp = [];
 
         checkData.forEach(r => {
+          if (!r[0]) return; // Skip ghost rows
           const rDate = new Date(r[0]);
           const rDateStr = Utilities.formatDate(rDate, tz, "yyyy-MM-dd");
-          const rCat = String(r[7] || '').toUpperCase();
-          const rFreq = String(r[8] || 'Daily');
-          const rTag = r[2];
+          const rCat = String(r[7] || '').toUpperCase().trim();
+          const rFreq = String(r[8] || 'Daily').trim();
+          const rTag = String(r[2] || '').trim();
           if (rCat !== category) return;
+          if (!rTag) return;
           
           if (rFreq === 'Daily' && rDateStr === todayStr) dailyComp.push(rTag);
           if (rFreq === 'Monthly' && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) monthlyComp.push(rTag);
@@ -102,12 +104,12 @@ function doGet(e) {
         });
 
         const ptLogs = getSheetData(ss, 'Performance_Log')
-          .filter(r => String(r[4] || '').toUpperCase() === category)
-          .map(r => ({ Timestamp: r[0], tech: r[1], points: Number(r[2]), reason: r[3], category: r[4] }));
+          .filter(r => String(r[4] || '').toUpperCase().trim() === category)
+          .map(r => ({ Timestamp: r[0], tech: String(r[1] || '').trim(), points: Number(r[2]), reason: String(r[3] || '').trim(), category: String(r[4] || '').trim() }));
 
         const operationalAssetMap = {};
         getSheetData(ss, 'Master_Assets').forEach(r => {
-          if (String(r[11]).toUpperCase() === category) {
+          if (String(r[11]).toUpperCase().trim() === category) {
              const status = String(r[8]).trim().toUpperCase();
              if (status === 'ACTIVE' || status === 'MAINTENANCE') operationalAssetMap[String(r[1]).trim().toUpperCase()] = true;
           }
@@ -116,15 +118,15 @@ function doGet(e) {
         let gStocks = {};
         let assetUsage = {};
         getSheetData(ss, 'Gas_Ledger').forEach(row => {
-          const actionType = String(row[1]).toUpperCase();
-          const gasType = row[2];
+          const actionType = String(row[1] || '').toUpperCase().trim();
+          const gasType = String(row[2] || '').trim();
           const amount = Number(row[3]) || 0;
-          const ledgerCat = String(row[6]).toUpperCase();
+          const ledgerCat = String(row[6] || '').toUpperCase().trim();
 
-          gStocks[gasType] = (gStocks[gasType] || 0) + amount;
+          if (gasType) gStocks[gasType] = (gStocks[gasType] || 0) + amount;
 
           if (actionType === 'USAGE' && ledgerCat === category) {
-            const tag = String(row[5]).trim().toUpperCase();
+            const tag = String(row[5] || '').trim().toUpperCase();
             if (operationalAssetMap[tag]) {
               assetUsage[tag] = (assetUsage[tag] || 0) + Math.abs(amount);
             }
@@ -132,8 +134,8 @@ function doGet(e) {
         });
 
         const insightData = getSheetData(ss, 'System_Insights')
-          .filter(r => String(r[1]).toUpperCase() === category)
-          .map(r => ({ tag: r[2], type: r[3] }));
+          .filter(r => String(r[1] || '').toUpperCase().trim() === category)
+          .map(r => ({ tag: String(r[2] || '').trim(), type: String(r[3] || '').trim() }));
 
         return createJsonResponse({ 
           complaints, 
@@ -150,29 +152,29 @@ function doGet(e) {
 
       case 'get_global_stats':
         const allTickets = getSheetData(ss, 'Work_Orders').map((row, idx) => ({
-          rowIndex: idx + 2, date: row[0], category: row[1], location: row[2],
-          assetTag: row[3], details: row[4], assignedTo: row[5], status: row[6],
-          resolvedBy: row[7], workType: row[8], remarks: row[9], gasUsed: row[10], gasType: row[11],
+          rowIndex: idx + 2, date: row[0], category: String(row[1] || '').trim(), location: String(row[2] || '').trim(),
+          assetTag: String(row[3] || '').trim(), details: String(row[4] || '').trim(), assignedTo: String(row[5] || '').trim(), status: String(row[6] || '').trim(),
+          resolvedBy: String(row[7] || '').trim(), workType: String(row[8] || '').trim(), remarks: String(row[9] || '').trim(), gasUsed: row[10], gasType: String(row[11] || '').trim(),
           complaintType: row[12] || 'Reactive',
           starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
           resolutionTimestamp: row[16]
         }));
-        const allLogs = getSheetData(ss, 'Performance_Log').map(r => ({ Timestamp: r[0], tech: r[1], points: Number(r[2]), reason: r[3], category: r[4] }));
+        const allLogs = getSheetData(ss, 'Performance_Log').map(r => ({ Timestamp: r[0], tech: String(r[1] || '').trim(), points: Number(r[2]), reason: String(r[3] || '').trim(), category: String(r[4] || '').trim() }));
         const seatingData = getSheetData(ss, 'Seating_Plan').map(row => ({
-          no: row[0], location: row[1], campusCode: row[2], floorTag: row[3], roomTag: row[4],
-          stationTag: row[5], empName: row[6], empCode: row[7], empType: row[8], roomCode: row[9],
-          roomCodeDashboard: row[10], seatCode: row[11], bu: row[12], department: row[13],
-          category: row[14], status: row[15], snapshotDate: row[16], finalDept: row[17]
+          no: row[0], location: String(row[1] || '').trim(), campusCode: String(row[2] || '').trim(), floorTag: String(row[3] || '').trim(), roomTag: String(row[4] || '').trim(),
+          stationTag: String(row[5] || '').trim(), empName: String(row[6] || '').trim(), empCode: String(row[7] || '').trim(), empType: String(row[8] || '').trim(), roomCode: String(row[9] || '').trim(),
+          roomCodeDashboard: String(row[10] || '').trim(), seatCode: String(row[11] || '').trim(), bu: String(row[12] || '').trim(), department: String(row[13] || '').trim(),
+          category: String(row[14] || '').trim(), status: String(row[15] || '').trim(), snapshotDate: String(row[16] || '').trim(), finalDept: String(row[17] || '').trim()
         }));
         return createJsonResponse({ allTickets, allPerformanceLogs: allLogs, seatingData });
 
       case 'get_checklist_report':
         const rawCheck = getSheetData(ss, 'Checklist_Audit');
-        return createJsonResponse(rawCheck.filter(r => String(r[7]).toUpperCase() === category));
+        return createJsonResponse(rawCheck.filter(r => String(r[7]).toUpperCase().trim() === category));
 
       case 'get_complaint_report':
         const rawComplaints = getSheetData(ss, 'Work_Orders');
-        return createJsonResponse(rawComplaints.filter(r => String(r[1]).toUpperCase() === category));
+        return createJsonResponse(rawComplaints.filter(r => String(r[1]).toUpperCase().trim() === category));
 
       default:
         return createJsonResponse({ error: "Action Unknown: " + action });
@@ -194,86 +196,69 @@ function doPost(e) {
     switch(action) {
       case 'log_gas_tx':
         const amountTx = Number(params.amount);
-        const actionTypeTx = String(params.type).toUpperCase();
+        const actionTypeTx = String(params.type || '').toUpperCase().trim();
         ss.getSheetByName('Gas_Ledger').appendRow([
           new Date(), 
           actionTypeTx, 
-          params.gasType, 
+          String(params.gasType || '').trim(), 
           actionTypeTx === 'REFILL' ? Math.abs(amountTx) : -Math.abs(amountTx), 
-          params.tech, 
-          params.refTicket || 'N/A', 
+          String(params.tech || '').trim(), 
+          String(params.refTicket || 'N/A').trim(), 
           category
         ]);
-        
-        if (actionTypeTx === 'USAGE' && params.refTicket && params.refTicket !== 'HUB_REFILL') {
-          ss.getSheetByName('System_Insights').appendRow([
-            new Date(),
-            category,
-            params.refTicket,
-            'Refill Event',
-            `Maintenance: ${Math.abs(amountTx)}kg of ${params.gasType} refilled by ${params.tech}`
-          ]);
-        }
         break;
 
       case 'checklist_entry':
-        let photoData = params.photo || '';
+        // Data Normalization to prevent false 'Missing' flags
+        const cTag = String(params.assetTag || '').trim().toUpperCase();
+        const cTech = String(params.technician || '').trim();
+        const cTask = String(params.task || '').trim();
+        const cFreq = String(params.frequency || 'Daily').trim();
+        const cStatus = String(params.status || 'OK').trim();
+        
+        if (!cTag || !cTech) break;
+
         ss.getSheetByName('Checklist_Audit').appendRow([
           new Date(), 
-          params.technician, 
-          params.assetTag, 
-          params.task, 
-          params.status, 
-          params.remarks, 
-          photoData, 
+          cTech, 
+          cTag, 
+          cTask, 
+          cStatus, 
+          String(params.remarks || '').trim(), 
+          String(params.reference || '').trim(), 
           category, 
-          params.frequency || 'Daily'
+          cFreq
         ]);
         break;
 
       case 'resolve_ticket':
         const woSheetRes = ss.getSheetByName('Work_Orders');
         const rowIndexRes = Number(params.rowIndex);
-        // Updating through column 17 (ResolutionTimestamp)
+        if (!rowIndexRes) break;
+
         woSheetRes.getRange(rowIndexRes, 7, 1, 11).setValues([[
-          params.status, 
-          params.resolvedBy, 
-          params.workType || '', 
-          params.remarks || '', 
+          String(params.status || '').trim(), 
+          String(params.resolvedBy || '').trim(), 
+          String(params.workType || '').trim(), 
+          String(params.remarks || '').trim(), 
           params.gasUsed || 0, 
-          params.gasType || '',
-          params.complaintType || '', // Ensure we don't overwrite complaintType if passed
-          '', '', '', // Placeholder for rating/points/admin date
-          new Date() // ResolutionTimestamp (Column 17)
+          String(params.gasType || '').trim(),
+          String(params.complaintType || '').trim(),
+          '', '', '',
+          new Date()
         ]]);
-        if (params.gasUsed && Number(params.gasUsed) > 0) {
-          const techName = params.resolvedBy.split(' • ')[0] || 'Hub Specialist';
-          ss.getSheetByName('Gas_Ledger').appendRow([
-            new Date(), 
-            'USAGE', 
-            params.gasType, 
-            -Math.abs(Number(params.gasUsed)), 
-            techName, 
-            params.assetTag, 
-            category
-          ]);
-          ss.getSheetByName('System_Insights').appendRow([
-            new Date(),
-            category,
-            params.assetTag,
-            'Refill Event',
-            `Work Order: ${Math.abs(Number(params.gasUsed))}kg of ${params.gasType} utilized during resolution.`
-          ]);
-        }
         break;
 
       case 'admin_review_ticket':
         const woSheetRev = ss.getSheetByName('Work_Orders');
         const rowIndexRev = Number(params.rowIndex);
+        if (!rowIndexRev) break;
+
         const stars = Number(params.stars);
         const points = Number(params.points);
-        const tech = params.technician;
-        const assetTagRev = params.assetTag;
+        const multiTechStr = String(params.technician || '').trim();
+        const assetTagRev = String(params.assetTag || '').trim().toUpperCase();
+        const reviewReason = String(params.reviewReason || '').trim();
         
         woSheetRev.getRange(rowIndexRev, 7).setValue('Completed');
         woSheetRev.getRange(rowIndexRev, 14, 1, 3).setValues([[
@@ -282,20 +267,31 @@ function doPost(e) {
           new Date()
         ]]);
 
-        ss.getSheetByName('Performance_Log').appendRow([
-          new Date(), 
-          tech, 
-          points, 
-          `Evaluation Rating: ${stars} Stars`, 
-          category
-        ]);
+        if (reviewReason) {
+           const currentRemarks = woSheetRev.getRange(rowIndexRev, 10).getValue();
+           const updatedRemarks = currentRemarks ? currentRemarks + " | REVIEW: " + reviewReason : "REVIEW: " + reviewReason;
+           woSheetRev.getRange(rowIndexRev, 10).setValue(updatedRemarks);
+        }
 
-        // Lifecycle Restore Trigger: Return to ACTIVE on admin evaluate
+        // MULTI-ATTRIBUTION LOGIC: Award points to all responders
+        const techList = multiTechStr.split(',').map(t => t.trim()).filter(Boolean);
+        const perfLog = ss.getSheetByName('Performance_Log');
+        
+        techList.forEach(t => {
+          perfLog.appendRow([
+            new Date(), 
+            t, 
+            points, 
+            reviewReason ? `Audit: ${stars} Stars - ${reviewReason}` : `Evaluation Rating: ${stars} Stars`, 
+            category
+          ]);
+        });
+
         if (category === 'AC' && assetTagRev && assetTagRev !== 'N/A') {
           const astSheet = ss.getSheetByName('Master_Assets');
           const astData = astSheet.getDataRange().getValues();
           for (let i = 1; i < astData.length; i++) {
-            if (String(astData[i][1]).trim().toUpperCase() === String(assetTagRev).trim().toUpperCase()) {
+            if (String(astData[i][1]).trim().toUpperCase() === assetTagRev) {
               astSheet.getRange(i + 1, 9).setValue('Active');
               break;
             }
@@ -307,38 +303,45 @@ function doPost(e) {
         ss.getSheetByName('Work_Orders').appendRow([
           new Date(), 
           category, 
-          params.location, 
-          params.assetTag, 
-          params.details, 
-          params.assignedTech, 
-          params.status, 
+          String(params.location || '').trim(), 
+          String(params.assetTag || '').trim().toUpperCase(), 
+          String(params.details || '').trim(), 
+          String(params.assignedTech || 'Unassigned').trim(), 
+          String(params.status || 'Open').trim(), 
           '', '', '', 0, '', 
-          params.complaintType || 'Reactive'
+          String(params.complaintType || 'Reactive').trim()
         ]);
         break;
 
       case 'update_points':
-        ss.getSheetByName('Performance_Log').appendRow([new Date(), params.technician, Number(params.points), params.reason, category]);
+        ss.getSheetByName('Performance_Log').appendRow([
+          new Date(), 
+          String(params.technician || '').trim(), 
+          Number(params.points), 
+          String(params.reason || '').trim(), 
+          category
+        ]);
         break;
 
       case 'add_tool':
         ss.getSheetByName('Master_Tools').appendRow([
           category, 
-          params.name, 
+          String(params.name || '').trim(), 
           Number(params.qty),
-          params.technician || ''
+          String(params.technician || '').trim()
         ]);
         break;
 
       case 'update_tool':
         const toolSheet = ss.getSheetByName('Master_Tools');
         const tools = toolSheet.getDataRange().getValues();
+        const oldN = String(params.oldName || '').trim();
         for (let i = 1; i < tools.length; i++) {
-          if (String(tools[i][0]).toUpperCase() === category && String(tools[i][1]).trim() === String(params.oldName).trim()) {
+          if (String(tools[i][0]).toUpperCase().trim() === category && String(tools[i][1]).trim() === oldN) {
             toolSheet.getRange(i + 1, 2, 1, 3).setValues([[
-              params.name, 
+              String(params.name || '').trim(), 
               Number(params.qty),
-              params.technician || ''
+              String(params.technician || '').trim()
             ]]);
             break;
           }
@@ -348,8 +351,9 @@ function doPost(e) {
       case 'delete_tool':
         const dToolSheet = ss.getSheetByName('Master_Tools');
         const dTools = dToolSheet.getDataRange().getValues();
+        const delN = String(params.name || '').trim();
         for (let i = dTools.length - 1; i >= 1; i--) {
-          if (String(dTools[i][0]).toUpperCase() === category && String(dTools[i][1]).trim() === String(params.name).trim()) {
+          if (String(dTools[i][0]).toUpperCase().trim() === category && String(dTools[i][1]).trim() === delN) {
             dToolSheet.deleteRow(i + 1);
             break;
           }
@@ -357,15 +361,22 @@ function doPost(e) {
         break;
 
       case 'submit_demand':
-        ss.getSheetByName('Material_Demands').appendRow([new Date(), params.technician, params.details, params.status, category]);
+        ss.getSheetByName('Material_Demands').appendRow([
+          new Date(), 
+          String(params.technician || '').trim(), 
+          String(params.details || '').trim(), 
+          String(params.status || 'Submitted').trim(), 
+          category
+        ]);
         break;
 
       case 'update_asset_status':
         const astSheetU = ss.getSheetByName('Master_Assets');
         const astDataU = astSheetU.getDataRange().getValues();
+        const updT = String(params.tag || '').trim().toUpperCase();
         for (let i = 1; i < astDataU.length; i++) {
-          if (String(astDataU[i][1]).trim().toUpperCase() === String(params.tag).trim().toUpperCase()) {
-            astSheetU.getRange(i + 1, 9).setValue(params.status);
+          if (String(astDataU[i][1]).trim().toUpperCase() === updT) {
+            astSheetU.getRange(i + 1, 9).setValue(String(params.status).trim());
             break;
           }
         }
@@ -377,7 +388,7 @@ function doPost(e) {
         const header = allLogs.shift();
         const logsToKeep = [];
         allLogs.forEach(row => {
-          if (String(row[4] || '').toUpperCase() !== category) logsToKeep.push(row);
+          if (String(row[4] || '').toUpperCase().trim() !== category) logsToKeep.push(row);
         });
         logSheet.clear();
         logSheet.appendRow(header);
@@ -398,7 +409,10 @@ function getSheetData(ss, name) {
   const sheet = ss.getSheetByName(name);
   if (!sheet) return [];
   const range = sheet.getDataRange();
-  return range.getNumRows() > 1 ? range.getValues().slice(1) : [];
+  const values = range.getValues();
+  if (values.length <= 1) return [];
+  // Enhanced Filtering: Only non-empty rows based on Timestamp (Col 0)
+  return values.slice(1).filter(row => row[0] && String(row[0]).trim() !== "");
 }
 
 function createJsonResponse(data) {

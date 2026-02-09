@@ -22,30 +22,19 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   const [issueDetails, setIssueDetails] = useState('');
   const [showIssueModal, setShowIssueModal] = useState(false);
 
-  // Requirement 1: Local state for zero-latency feedback (Green & Locked)
+  // Local state for zero-latency feedback (Green & Locked)
   const [locallyDoneTags, setLocallyDoneTags] = useState<Set<string>>(new Set());
 
   // Store metadata for completion sync to see who completed shared items
   const [electricalMetadata, setElectricalMetadata] = useState<Record<string, { tech: string, timestamp: string }>>({});
-
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  
   const [syncingTags, setSyncingTags] = useState<Set<string>>(new Set());
-  
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
 
   // Reset local tracking when context changes to prevent stale UI locks
   useEffect(() => {
     setLocallyDoneTags(new Set());
   }, [activeFrequency, selectedCampus]);
 
-  // Requirement 4: Operational Logging for Sync Checks
+  // Operational Logging for Sync Checks
   useEffect(() => {
     if (stats) {
       console.log(`[CHECKLIST SYSTEM] Syncing Registry... Category: ${category.toUpperCase()}, Tech: ${techName}, Freq: ${activeFrequency}`);
@@ -179,36 +168,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     };
   }, [currentTaskItems, stats, locallyDoneTags]);
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setIsCameraActive(true);
-        setCapturedPhoto(null);
-      }
-    } catch (err) { showToast("Camera Access Denied"); }
-  };
-
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      setIsCameraActive(false);
-    }
-  };
-
-  const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
-      canvasRef.current.width = 800;
-      canvasRef.current.height = 600;
-      context?.drawImage(videoRef.current, 0, 0, 800, 600);
-      const data = canvasRef.current.toDataURL('image/jpeg', 0.5); 
-      setCapturedPhoto(data);
-      stopCamera();
-    }
-  };
-
   const handleAction = async (itemTag: string, status: 'OK' | 'Issue') => {
     if ((category === 'electrical') && !selectedCampus) {
       showToast("Select Campus First");
@@ -221,24 +180,13 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       return;
     }
 
-    // Requirement 2: Evidence Protocol for non-daily tasks
-    if (activeFrequency !== ChecklistType.DAILY) {
-      setCurrentTask(itemTag);
-      setCapturedPhoto(null);
-      setUploadSuccess(false);
-      setShowPhotoModal(true);
-      startCamera();
-      return;
-    }
-
-    // Requirement 1 & 2: Instant Feedback & Lock
+    // Instant Feedback & Lock
     const tagNormalized = itemTag.toUpperCase();
     setLocallyDoneTags(prev => new Set(prev).add(tagNormalized));
     setSyncingTags(prev => new Set(prev).add(itemTag));
     
     try {
-      await finalizeEntry(itemTag, "OK", "Routine Verified", "");
-      // Requirement 4: Logging
+      await finalizeEntry(itemTag, "OK", "Routine Verified");
       console.log(`[LOG] Task marked DONE. Tag: ${itemTag}, Tech: ${techName}, Freq: ${activeFrequency}, Time: ${new Date().toLocaleTimeString()}`);
     } catch (e) {
       setLocallyDoneTags(prev => { const n = new Set(prev); n.delete(tagNormalized); return n; });
@@ -247,24 +195,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     }
   };
 
-  const handleTransmitPhoto = async () => {
-    if (!currentTask || !capturedPhoto) return;
-    setIsUploading(true);
-    setSyncingTags(prev => new Set(prev).add(currentTask));
-    try {
-      await finalizeEntry(currentTask, "OK", `Verified via ${activeFrequency} Evidence`, capturedPhoto);
-      setUploadSuccess(true);
-      setLocallyDoneTags(prev => new Set(prev).add(currentTask.toUpperCase()));
-      console.log(`[LOG] Task marked DONE with PHOTO. Tag: ${currentTask}, Tech: ${techName}, Freq: ${activeFrequency}`);
-      setTimeout(() => { setShowPhotoModal(false); setIsUploading(false); setUploadSuccess(false); setCapturedPhoto(null); }, 1500);
-    } catch (e) {
-      setIsUploading(false);
-      setSyncingTags(prev => { const n = new Set(prev); n.delete(currentTask); return n; });
-      showToast("Transmission failure");
-    }
-  };
-
-  const finalizeEntry = async (itemTag: string, status: string, remarks: string, photo: string) => {
+  const finalizeEntry = async (itemTag: string, status: string, remarks: string) => {
     const fd = new FormData();
     fd.append('action', 'checklist_entry');
     fd.append('category', category.toUpperCase());
@@ -274,12 +205,10 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     fd.append('task', `${activeFrequency} ${category.toUpperCase()} Check`);
     fd.append('status', status); 
     fd.append('remarks', remarks);
-    if (photo) fd.append('photo', photo); 
     
-    if (!isUploading) showToast(`Synchronizing Registry...`);
+    showToast(`Synchronizing Registry...`);
     await postAction(fd);
 
-    // Requirement 1 & 2: Award points only to action-taker
     if (status === "OK") await updatePoints(category, techName, 1, `${category.toUpperCase()} ${activeFrequency} Verification`);
 
     if (status === "Issue") {
@@ -360,7 +289,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-2">{group}</h4>
                {(tasks as any[]).map((item, i) => {
                  const tagNormalized = String(item.tag || '').toUpperCase();
-                 // Requirement 1 & 2: Robust Shared Lock Logic
                  const isDone = locallyDoneTags.has(tagNormalized) || currentDoneList.includes(tagNormalized);
                  const isSyncing = syncingTags.has(item.tag);
                  const metadata = electricalMetadata[tagNormalized];
@@ -412,60 +340,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         )}
       </div>
 
-      {showPhotoModal && (
-        <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center p-6 backdrop-blur-md animate-fadeIn">
-           <div className="bg-white w-full max-sm rounded-[2.5rem] p-8 shadow-2xl flex flex-col items-center">
-              <h3 className="text-xl font-black text-slate-950 uppercase italic tracking-tighter text-center mb-2">Evidence Protocol</h3>
-              <p className="text-[8px] font-black text-indigo-500 uppercase tracking-widest italic text-center mb-6">Verification Mandatory for {activeFrequency} Validation</p>
-              <div className="w-full aspect-square bg-slate-100 rounded-[2rem] overflow-hidden mb-6 border-2 border-slate-100 relative">
-                {capturedPhoto ? (
-                  <div className="relative h-full w-full">
-                    <img src={capturedPhoto} className="w-full h-full object-cover animate-fadeIn" alt="Captured" />
-                    {isUploading && (
-                      <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center backdrop-blur-sm">
-                        {uploadSuccess ? <i className="fas fa-check-circle text-emerald-400 text-5xl animate-bounce"></i> : <i className="fas fa-circle-notch animate-spin text-teal-400 text-5xl"></i>}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover grayscale brightness-110" />
-                    <div className="absolute bottom-4 left-0 w-full flex justify-center gap-3">
-                       <button onClick={() => fileInputRef.current?.click()} className="bg-white/90 text-slate-900 px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest shadow-xl"><i className="fas fa-folder-open mr-2"></i>Gallery</button>
-                    </div>
-                  </>
-                )}
-              </div>
-              <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const reader = new FileReader();
-                  reader.onloadend = () => { setCapturedPhoto(reader.result as string); stopCamera(); };
-                  reader.readAsDataURL(file);
-                }
-              }} />
-              <div className="grid grid-cols-2 gap-4 w-full">
-                {capturedPhoto ? (
-                  <>
-                    <button disabled={isUploading} onClick={() => { setCapturedPhoto(null); startCamera(); }} className="py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] italic">Retake</button>
-                    <button disabled={isUploading} onClick={handleTransmitPhoto} className="py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl italic flex items-center justify-center gap-3">
-                       <i className="fas fa-cloud-upload-alt"></i><span>Authorize</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={() => { setShowPhotoModal(false); stopCamera(); }} className="py-4 text-slate-400 font-black uppercase text-[10px] italic">Abort</button>
-                    <button onClick={takePhoto} className="py-4 bg-slate-950 text-white rounded-2xl font-black uppercase text-[10px] shadow-xl italic flex items-center justify-center gap-3">
-                       <i className="fas fa-camera"></i><span>Capture</span>
-                    </button>
-                  </>
-                )}
-              </div>
-              <canvas ref={canvasRef} className="hidden" />
-           </div>
-        </div>
-      )}
-
       {showIssueModal && (
         <div className="fixed inset-0 bg-slate-950/95 z-[200] flex items-center justify-center p-6 backdrop-blur-md animate-fadeIn">
            <div className="bg-white w-full max-sm rounded-[2.5rem] p-10 shadow-2xl">
@@ -473,7 +347,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
               <textarea value={issueDetails} onChange={e => setIssueDetails(e.target.value)} placeholder="Narrate the discrepancy..." className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 focus:border-rose-500 outline-none font-bold text-xs min-h-[160px] resize-none italic" />
               <div className="grid grid-cols-2 gap-4 mt-8">
                  <button onClick={() => setShowIssueModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px] italic">Abort</button>
-                 <button onClick={() => { if(currentTask) { finalizeEntry(currentTask, "Issue", issueDetails, ""); setShowIssueModal(false); setIssueDetails(''); setCurrentTask(null); }}} className="bg-rose-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-2xl">Confirm Fault</button>
+                 <button onClick={() => { if(currentTask) { finalizeEntry(currentTask, "Issue", issueDetails); setShowIssueModal(false); setIssueDetails(''); setCurrentTask(null); }}} className="bg-rose-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-2xl">Confirm Fault</button>
               </div>
            </div>
         </div>

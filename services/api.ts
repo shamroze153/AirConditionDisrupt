@@ -111,7 +111,7 @@ export const updatePoints = async (category: CategoryKey, tech: string, points: 
   await postAction(fd);
 };
 
-export const adminReviewTicket = async (category: CategoryKey, tech: string, rowIndex: number, stars: number, points: number, assetTag: string): Promise<void> => {
+export const adminReviewTicket = async (category: CategoryKey, tech: string, rowIndex: number, stars: number, points: number, assetTag: string, reviewReason?: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'admin_review_ticket');
   fd.append('category', category.toUpperCase());
@@ -120,6 +120,7 @@ export const adminReviewTicket = async (category: CategoryKey, tech: string, row
   fd.append('stars', String(stars));
   fd.append('points', String(points));
   fd.append('assetTag', assetTag || 'N/A');
+  if (reviewReason) fd.append('reviewReason', reviewReason);
   await postAction(fd);
 };
 

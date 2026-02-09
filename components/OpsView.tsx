@@ -28,7 +28,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
 
   const [selCampus, setSelCampus] = useState('');
   const [selFloor, setSelFloor] = useState('');
-  const [selLocation, setSelLocation] = useState(''); // Now used for Manual Text Input for non-AC
+  const [selLocation, setSelLocation] = useState(''); 
   
   const techList = CATEGORY_TECHS[category] || [];
   const [manualTech, setManualTech] = useState(techList[0] || '');
@@ -37,6 +37,11 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
 
   const [submittingRows, setSubmittingRows] = useState<Set<number>>(new Set());
   const [pendingStars, setPendingStars] = useState<Record<number, number>>({});
+  const [pendingReasons, setPendingReasons] = useState<Record<number, string>>({});
+  
+  // Extreme Rating Reason Modal state
+  const [reasonModal, setReasonModal] = useState<{ rowIndex: number, stars: number } | null>(null);
+  const [tempReason, setTempReason] = useState('');
 
   const campuses = Object.keys(CAMPUS_ROOMS);
   
@@ -53,7 +58,14 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
     tickets.filter(t => t.status === 'Resolved – Pending Admin Review'),
   [tickets]);
 
-  // MAESTRO LOOKUP LOGIC: Automated Recognition with Loading Guard
+  // Utility to parse resolvers from the tech narrative string
+  const parseResolvers = (resolvedByStr: string) => {
+    if (!resolvedByStr) return [];
+    // TechView format: "Name1 & Name2 • Timestamp"
+    const namePart = resolvedByStr.split('•')[0].trim();
+    return namePart.split('&').map(n => n.trim()).filter(Boolean);
+  };
+
   const handleLookup = (val: string) => {
     setLookupId(val);
     if (!val) { setFoundAsset(null); setIsSearching(false); return; }
@@ -61,7 +73,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
     setIsSearching(true);
     setFoundAsset(null);
     
-    // Simulate real-time registry pulse
     const asset = assets.find(a => 
       String(a.id) === val.trim() || 
       String(a.tag || '').toLowerCase() === val.toLowerCase().trim()
@@ -70,9 +81,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
     setTimeout(() => {
       setFoundAsset(asset || null);
       setIsSearching(false);
-      if (!asset && val.length > 3) {
-        // Log that we couldn't find it to prevent silent errors
-      }
     }, 800);
   };
 
@@ -88,7 +96,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
   };
 
   const handleDispatch = async () => {
-    // LOCK MECHANISM: Prevents dispatch if searching or data missing
     if (isSearching || isSubmitting) return;
     if (!faultDesc.trim()) return;
     if (category === 'ac' && !foundAsset) return;
@@ -144,7 +151,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
 
       await postAction(fd);
       
-      // AUTO-LIFECYCLE AUTOMATION
       if (category === 'ac' && targetTag !== 'N/A') {
         await updateAssetStatus(category, targetTag, 'Maintenance');
       }
@@ -186,15 +192,48 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
   const handleAdminReview = async (t: Ticket) => {
     const stars = pendingStars[t.rowIndex];
     if (stars === undefined) return; 
+    
+    const isExtreme = stars === 1 || stars === 5;
+    const reason = pendingReasons[t.rowIndex];
+    if (isExtreme && !reason) {
+       setReasonModal({ rowIndex: t.rowIndex, stars });
+       setTempReason('');
+       return;
+    }
+
     setSubmittingRows(prev => new Set(prev).add(t.rowIndex));
     const points = stars - 2;
+
+    // FIX: Attribute points to actual resolvers, not initial assignee
+    const actualResolvers = parseResolvers(t.resolvedBy);
+    const attributionTechs = actualResolvers.length > 0 ? actualResolvers.join(',') : t.assignedTo;
+
     try {
-      await adminReviewTicket(category, t.assignedTo, t.rowIndex, stars, points, t.assetTag);
+      await adminReviewTicket(category, attributionTechs, t.rowIndex, stars, points, t.assetTag, reason);
       showToast(`Audit Finalized: ${stars} Stars`);
+      
       setPendingStars(prev => { const next = { ...prev }; delete next[t.rowIndex]; return next; });
+      setPendingReasons(prev => { const next = { ...prev }; delete next[t.rowIndex]; return next; });
       onRefresh();
     } catch (e) { showToast("Sync failure"); } 
     finally { setSubmittingRows(prev => { const next = new Set(prev); next.delete(t.rowIndex); return next; }); }
+  };
+
+  const handleStarSelection = (rowIndex: number, star: number) => {
+    setPendingStars(prev => ({...prev, [rowIndex]: star}));
+    if (star === 1 || star === 5) {
+       setReasonModal({ rowIndex, stars: star });
+       setTempReason(pendingReasons[rowIndex] || '');
+    } else {
+       setPendingReasons(prev => { const next = {...prev}; delete next[rowIndex]; return next; });
+    }
+  };
+
+  const handleSaveReason = () => {
+    if (!reasonModal || !tempReason.trim()) return;
+    setPendingReasons(prev => ({...prev, [reasonModal.rowIndex]: tempReason.trim()}));
+    setReasonModal(null);
+    showToast("Audit Documentation Saved");
   };
 
   if (!isOpsUnlocked) {
@@ -233,7 +272,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
           <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter leading-none italic uppercase">Deployment Pipeline</h2>
         </div>
         <div className="flex gap-3">
-          <button onClick={() => setIsModalOpen(true)} className="bg-slate-900 text-white px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-[9px] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 italic">
+          <button onClick={() => setIsModalOpen(true)} className="bg-slate-950 text-white px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black uppercase tracking-widest text-[9px] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 italic">
              <span>Raise Issue</span>
              <i className="fas fa-plus-circle text-indigo-400 animate-pulse"></i>
           </button>
@@ -243,6 +282,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
         </div>
       </div>
 
+      {/* EVALUATION REGISTRY SECTION */}
       <section className="bg-indigo-50/30 p-6 md:p-8 rounded-[2rem] border-2 border-indigo-100/50 space-y-6">
         <div className="flex justify-between items-center px-2">
           <div>
@@ -256,29 +296,46 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
             <div className="py-12 text-center opacity-20"><p className="text-[9px] font-black uppercase italic tracking-widest">No Evaluations Pending</p></div>
           ) : (
             pendingReviewQueue.map((t, i) => {
-              const selected = pendingStars[t.rowIndex];
+              const stars = pendingStars[t.rowIndex];
+              const reason = pendingReasons[t.rowIndex];
               const isProcessing = submittingRows.has(t.rowIndex);
+              const isExtreme = stars === 1 || stars === 5;
+              const missingReason = isExtreme && !reason;
+
+              // Parse actual responders for display
+              const responders = parseResolvers(t.resolvedBy);
+              const responderLabel = responders.length > 0 ? responders.join(' & ') : t.assignedTo;
+
               return (
                 <div key={i} className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 animate-fadeIn">
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-3">
                       <span className="bg-indigo-600 text-white text-[7px] font-black px-2 py-0.5 rounded italic uppercase">Audit Mode</span>
-                      <span className="text-[7px] font-bold text-slate-400 italic">{t.assignedTo} resolved this</span>
+                      <span className="text-[7px] font-bold text-slate-400 italic">
+                         <span className="text-indigo-600 font-black">{responderLabel}</span> resolved this
+                      </span>
                     </div>
                     <h4 className="font-black text-slate-900 text-[13px] italic leading-tight uppercase">"{t.details}"</h4>
-                    <p className="text-[8px] text-slate-400 font-bold uppercase truncate max-w-xs">{t.location} • {t.remarks}</p>
+                    <div className="flex items-center gap-2">
+                       <p className="text-[8px] text-slate-400 font-bold uppercase truncate max-w-xs">{t.location} • {t.remarks}</p>
+                       {reason && <span title={reason} className="bg-amber-50 text-amber-600 text-[6px] font-black px-1.5 py-0.5 rounded flex items-center gap-1 uppercase italic border border-amber-100"><i className="fas fa-comment-alt text-[5px]"></i> Documentation Captured</span>}
+                    </div>
                   </div>
                   <div className="flex flex-col items-end gap-3 shrink-0">
                     <div className="flex items-center gap-1.5">
                       {[1, 2, 3, 4, 5].map(star => (
-                        <button key={star} disabled={isProcessing} onClick={() => setPendingStars(prev => ({...prev, [t.rowIndex]: star}))} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all text-sm active:scale-90 ${selected >= star ? 'bg-amber-100 text-amber-500' : 'bg-slate-50 text-slate-200 hover:text-amber-300'}`}>
+                        <button key={star} disabled={isProcessing} onClick={() => handleStarSelection(t.rowIndex, star)} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all text-sm active:scale-90 ${stars >= star ? 'bg-amber-100 text-amber-500 shadow-sm' : 'bg-slate-50 text-slate-200 hover:text-amber-300'}`}>
                           <i className="fas fa-star"></i>
                         </button>
                       ))}
                     </div>
-                    {selected !== undefined && (
-                      <button disabled={isProcessing} onClick={() => handleAdminReview(t)} className="bg-slate-900 text-white px-5 py-2 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all">
-                        {isProcessing ? 'Transmitting...' : 'Submit Rating'}
+                    {stars !== undefined && (
+                      <button 
+                        disabled={isProcessing || missingReason} 
+                        onClick={() => handleAdminReview(t)} 
+                        className={`px-5 py-2 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all ${missingReason ? 'bg-slate-200 text-slate-400' : 'bg-slate-950 text-white'}`}
+                      >
+                        {isProcessing ? 'Transmitting...' : missingReason ? 'Reason Required' : 'Submit Rating'}
                       </button>
                     )}
                   </div>
@@ -289,6 +346,42 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
         </div>
       </section>
 
+      {/* REASON CAPTURE MODAL */}
+      {reasonModal && (
+        <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
+           <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-3xl border border-white/5 overflow-hidden">
+              <div className="flex justify-between items-center mb-8">
+                 <div>
+                    <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">Extreme Audit Documentation</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mt-4 tracking-widest italic">Reason required for {reasonModal.stars}-star rating</p>
+                 </div>
+                 <button onClick={() => setReasonModal(null)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 transition-all active:scale-90"><i className="fas fa-times text-xl"></i></button>
+              </div>
+              <div className="space-y-6">
+                 <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 focus-within:border-indigo-600 transition-all shadow-inner">
+                    <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Audit Narrative</label>
+                    <textarea 
+                      autoFocus
+                      value={tempReason} 
+                      onChange={e => setTempReason(e.target.value)} 
+                      rows={4} 
+                      placeholder={`Explain the rationale for this ${reasonModal.stars}-star rating...`} 
+                      className="w-full bg-transparent font-bold text-xs outline-none uppercase italic resize-none leading-relaxed text-slate-900" 
+                    />
+                 </div>
+                 <button 
+                   onClick={handleSaveReason} 
+                   disabled={!tempReason.trim()}
+                   className="w-full bg-slate-950 text-white py-6 rounded-2xl font-black uppercase text-[10px] tracking-[0.3em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30"
+                 >
+                    Authorize Documentation
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* ACTIVE PIPELINE LIST */}
       <div className="bg-white rounded-2xl md:rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col min-h-[420px] overflow-hidden">
         <div className="p-4 md:p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/20">
           <div>
@@ -324,7 +417,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                       <div className="w-8 h-8 md:w-10 md:h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center text-xs font-black shadow-lg italic">{t.assignedTo?.[0]}</div>
                       <div className="text-left">
                         <p className="text-[9px] md:text-[11px] text-slate-900 font-black uppercase leading-none">{t.assignedTo}</p>
-                        <p className="text-[6px] md:text-[7px] text-slate-300 font-bold uppercase mt-1 italic">Specialist</p>
+                        <p className="text-[6px] md:text-[7px] text-slate-300 font-bold uppercase mt-1 italic">Assigned Specialist</p>
                       </div>
                    </div>
                    <div className="flex gap-1.5">
@@ -338,6 +431,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
         </div>
       </div>
 
+      {/* DISPATCH MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/95 z-[500] flex items-center justify-center p-3 md:p-6 backdrop-blur-xl animate-fadeIn">
           <div className="bg-white w-full max-w-lg rounded-[2rem] md:rounded-[3rem] shadow-3xl flex flex-col max-h-[85vh] md:max-h-[90vh] overflow-hidden border border-white/10">
@@ -426,7 +520,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {/* THE 4-STEP MAESTRO FORM FOR ELECTRICAL/GM */}
                         <div className="grid grid-cols-2 gap-3">
                           <div className="bg-slate-50 p-3 md:p-4 rounded-xl border-2 border-slate-100 focus-within:border-indigo-600 shadow-inner">
                             <label className="block text-[7px] md:text-[8px] font-black text-slate-400 uppercase mb-1.5 ml-1 italic">Step 1: Campus</label>
@@ -477,7 +570,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                 <button 
                   onClick={handleDispatch} 
                   disabled={isSubmitting || isSearching || !faultDesc.trim() || (category === 'ac' && !foundAsset) || (category !== 'ac' && (!selCampus || !selFloor || !selLocation)) || !!assignmentFeedback} 
-                  className="w-full bg-slate-900 text-white py-4 md:py-6 rounded-xl md:rounded-[2rem] font-black text-[10px] md:text-[11px] shadow-2xl active:scale-95 transition-all disabled:opacity-30 uppercase tracking-[0.3em] italic flex items-center justify-center gap-4"
+                  className="w-full bg-slate-950 text-white py-4 md:py-6 rounded-xl md:rounded-[2rem] font-black text-[10px] md:text-[11px] shadow-2xl active:scale-95 transition-all disabled:opacity-30 uppercase tracking-[0.3em] italic flex items-center justify-center gap-4"
                 >
                    {isSearching ? <i className="fas fa-satellite-dish animate-pulse"></i> : isSubmitting ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-paper-plane"></i>}
                    <span>{isSearching ? 'Validating Registry...' : isSubmitting ? 'Transmitting...' : assignmentFeedback ? 'Sync Complete' : 'Dispatch Protocol'}</span>

@@ -75,6 +75,42 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const [toolFormData, setToolFormData] = useState<Partial<Tool>>({ name: '', qty: 1, technician: '' });
   const [isSavingTool, setIsSavingTool] = useState(false);
 
+  // Zone Level Status Summaries for AC
+  const zoneSummaries = useMemo(() => {
+    if (category !== 'ac') return [];
+    
+    return [0, 1, 2, 3].map(idx => {
+      const zoneAssets = assets.filter(a => {
+        const id = Number(a.id);
+        const active = String(a.status || '').trim().toUpperCase() === 'ACTIVE';
+        if (!active) return false;
+        if (idx === 0) return id >= 1 && id <= 40;
+        if (idx === 1) return id >= 41 && id <= 82;
+        if (idx === 2) return id >= 83 && id <= 121;
+        if (idx === 3) return id >= 122 && id <= 161;
+        return false;
+      });
+
+      const totalActive = zoneAssets.length || 0;
+      if (totalActive === 0) return { totalActive: 0, daily: 'Pending', monthly: 'Pending', quarterly: 'Pending' };
+
+      const checkFreq = (doneTags: string[]) => {
+        const normDone = doneTags.map(t => String(t || '').trim().toUpperCase());
+        const count = zoneAssets.filter(a => normDone.includes(String(a.tag).trim().toUpperCase())).length;
+        if (count === 0) return 'Pending';
+        if (count >= totalActive) return 'Done';
+        return 'In Progress';
+      };
+
+      return {
+        totalActive,
+        daily: checkFreq(stats?.hvac?.daily || []),
+        monthly: checkFreq(stats?.hvac?.monthly || []),
+        quarterly: checkFreq(stats?.hvac?.quarterly || [])
+      };
+    });
+  }, [category, assets, stats]);
+
   const loadTools = async () => {
     setIsLoadingTools(true);
     try {
@@ -143,15 +179,13 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     const solversStr = solvingTechs.join(' & ');
     const now = new Date();
     
-    // TASK 1: Work Order Time Tracking & Aging Logic
     const launchDate = new Date(resolveTicket.date);
     const agingHours = (now.getTime() - launchDate.getTime()) / (1000 * 3600);
-    const slaThreshold = resolveType === 'Minor' ? 24 : 48; 
+    const slaThreshold = resolveType === 'Minor' ? 24 : 168; 
     
     try {
-      // TASK 2: Automatic SLA Breach Penalty Logic
       if (agingHours > slaThreshold) {
-        const penalty = resolveType === 'Minor' ? -10 : -20;
+        const penalty = -10; 
         showToast(`SLA BREACH: RESOLVED IN ${Math.round(agingHours)} HOURS. Deducting points...`);
         for (const tech of solvingTechs) {
           await updatePoints(category, tech, penalty, `SLA BREACH: ${resolveType} Ticket resolved in ${Math.round(agingHours)} hrs (SLA: ${slaThreshold} hrs)`);
@@ -318,6 +352,12 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   }, [category, serverTools, toolSearch]);
 
   const electricalBags = ["Ibraheem", "Naveed Ali", "Haris & Owais", "Common Inventory"];
+
+  const getStatusColor = (status: string) => {
+    if (status === 'Done') return 'bg-emerald-500 shadow-[0_0_8px_#10b981]';
+    if (status === 'In Progress') return 'bg-amber-500 shadow-[0_0_8px_#f59e0b]';
+    return 'bg-rose-500 shadow-[0_0_8px_#f43f5e]';
+  };
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-6 animate-fadeIn pb-32">
@@ -534,25 +574,49 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
 
       {view === 'hub' && (
         <div className="animate-fadeIn">
-          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-xl">
+          <div className="bg-white p-6 md:p-10 rounded-[2.5rem] border border-slate-100 shadow-xl">
              <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 italic mb-8 leading-none">
                {category === 'ac' ? 'Checklist Deployment' : 'Operations Protocol'}
              </h3>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                {activeTechList.map((tech, i) => (
-                  <button key={i} onClick={() => onOpenChecklist(i, tech)} className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 hover:bg-white hover:shadow-2xl transition-all group flex items-center justify-between text-left">
-                    <div className="flex items-center gap-6">
-                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
-                        {category.toUpperCase()[0]}{i+1}
+                {activeTechList.map((tech, i) => {
+                  const summary = zoneSummaries[i];
+                  return (
+                    <button key={i} onClick={() => onOpenChecklist(i, tech)} className="bg-slate-50 p-6 md:p-8 rounded-[2.5rem] border border-slate-100 hover:bg-white hover:shadow-2xl transition-all group flex items-center justify-between text-left relative overflow-hidden">
+                      <div className="flex items-center gap-4 md:gap-6 relative z-10">
+                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
+                          {category.toUpperCase()[0]}{i+1}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-3">
+                            <p className="text-lg font-black text-slate-900 uppercase italic leading-none">{tech}</p>
+                            {category === 'ac' && summary && (
+                              <span className="bg-slate-900 text-white text-[7px] font-black px-2 py-0.5 rounded italic uppercase tracking-widest">{summary.totalActive} UNITS</span>
+                            )}
+                          </div>
+                          <p className="text-[9px] font-bold text-slate-300 uppercase mt-2 italic">Sector {i+1} Operational</p>
+                          
+                          {/* ZONE STATUS DASHBOARD */}
+                          {category === 'ac' && summary && (
+                            <div className="flex gap-4 mt-4 animate-fadeIn">
+                               {[
+                                 { label: 'D', status: summary.daily },
+                                 { label: 'M', status: summary.monthly },
+                                 { label: 'Q', status: summary.quarterly }
+                               ].map(freq => (
+                                 <div key={freq.label} className="flex items-center gap-1.5">
+                                   <div className={`w-1.5 h-1.5 rounded-full transition-all ${getStatusColor(freq.status)}`}></div>
+                                   <span className="text-[8px] font-black text-slate-400 uppercase italic">{freq.label}</span>
+                                 </div>
+                               ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-lg font-black text-slate-900 uppercase italic">{tech}</p>
-                        <p className="text-[9px] font-bold text-slate-300 uppercase mt-1 italic">Sector {i+1} Operational</p>
-                      </div>
-                    </div>
-                    <i className="fas fa-chevron-right text-slate-200 group-hover:text-indigo-500 text-xl"></i>
-                  </button>
-                ))}
+                      <i className="fas fa-chevron-right text-slate-200 group-hover:text-indigo-500 text-xl relative z-10"></i>
+                    </button>
+                  );
+                })}
              </div>
           </div>
         </div>

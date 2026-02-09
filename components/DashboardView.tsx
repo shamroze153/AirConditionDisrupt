@@ -3,6 +3,7 @@ import { Asset, Ticket, StatsResponse, FMCategory } from '../types.ts';
 import GasStatus from './GasStatus.tsx';
 import LeaderboardItem from './LeaderboardItem.tsx';
 import { updateAssetStatus, getReport, resetLeaderboard, logInsight } from '../services/api.ts';
+import { ELECTRICAL_MODULE_DATA } from '../constants.ts';
 
 interface Props {
   category: FMCategory;
@@ -42,7 +43,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   
   const [shufflingTag, setShufflingTag] = useState<string | null>(null);
   const [resetClicks, setResetClicks] = useState(0);
-  const [proofImage, setProofImage] = useState<string | null>(null);
 
   const parseHubDate = (dateStr: any) => {
     if (!dateStr) return null;
@@ -106,34 +106,73 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       return s === 'ACTIVE' || s === 'MAINTENANCE';
     });
     
-    const groups: Record<string, { entries: any[], doneUniqueIDs: Set<string> }> = {};
+    const groups: Record<string, { entries: any[], doneUniqueTags: Set<string>, frequency: string }> = {};
     
+    // Pass 1: Group data by date and normalize tags
     historyData.forEach(item => {
       const ts = item[0] || item.Timestamp;
       const d = parseHubDate(ts);
       if (!d) return;
       const dateKey = d.toLocaleDateString('en-CA');
-      if (!groups[dateKey]) groups[dateKey] = { entries: [], doneUniqueIDs: new Set() };
+      const itemFreq = String(item[8] || 'Daily').trim();
+      
+      if (!groups[dateKey]) groups[dateKey] = { entries: [], doneUniqueTags: new Set(), frequency: itemFreq };
       (groups[dateKey].entries as any).push(item as any);
+      
       const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase();
-      if (category.id === 'electrical') groups[dateKey].doneUniqueIDs.add(rawTag.split('_')[0]);
-      else groups[dateKey].doneUniqueIDs.add(rawTag);
+      if (rawTag) groups[dateKey].doneUniqueTags.add(rawTag);
     });
 
     const completeDays: any[] = [];
     const missedDays: any[] = [];
+    
+    // Pass 2: Calculate completion per day
     Object.entries(groups).forEach(([date, meta]) => {
       let totalReq = operationalAssets.length;
-      if (category.id === 'electrical') totalReq = 10; 
-      const doneCount = category.id === 'electrical' 
-        ? meta.doneUniqueIDs.size 
-        : operationalAssets.filter(a => meta.doneUniqueIDs.has(String(a.tag).trim().toUpperCase())).length;
+      let missedAssetsList: any[] = [];
+      
+      if (category.id === 'electrical') {
+        // PER-CAMPUS ENHANCED LOGIC: Account for 3 campuses (Total 27 daily)
+        const freq = meta.frequency || 'Daily';
+        const campuses = ['140H', '141D', '141C'];
+        const itemsInFreq = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === freq);
+        
+        totalReq = itemsInFreq.length * campuses.length;
+        
+        // Trace missing per-campus tasks
+        campuses.forEach(campus => {
+           itemsInFreq.forEach(task => {
+              const expectedTag = `${task.id}_${campus}`.toUpperCase();
+              if (!meta.doneUniqueTags.has(expectedTag)) {
+                 missedAssetsList.push({ tag: expectedTag, room: `Campus ${campus}`, detail: task.label });
+              }
+           });
+        });
+      } else {
+        // AC Logic: Match against operational asset registry
+        missedAssetsList = operationalAssets
+          .filter(a => !meta.doneUniqueTags.has(String(a.tag).trim().toUpperCase()))
+          .map(a => ({ tag: a.tag, room: a.room }));
+      }
+      
+      const doneCount = meta.doneUniqueTags.size;
       const isComplete = doneCount >= totalReq;
-      const missedAssets = category.id === 'electrical' ? [] : operationalAssets.filter(a => !meta.doneUniqueIDs.has(String(a.tag).trim().toUpperCase()));
-      const result = { date, entries: meta.entries, doneCount, totalRequired: totalReq, missedAssets };
+      
+      const result = { 
+        date, 
+        entries: meta.entries, 
+        doneCount, 
+        totalRequired: totalReq, 
+        missedAssets: missedAssetsList 
+      };
+      
       if (isComplete) completeDays.push(result); else missedDays.push(result);
     });
-    return { completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) };
+
+    return { 
+      completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), 
+      missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) 
+    };
   }, [historyData, assets, historyType, category.id]);
 
   const fetchHistory = async () => {
@@ -181,7 +220,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
 
   const handleExportCSV = () => {
     if (!historyData || historyData.length === 0) return;
-    const headers = historyType === 'complaint' ? "Timestamp,Category,Location,Asset,Details,Assigned,Status,Remarks\n" : "Timestamp,Technician,Asset,Task,Status,Remarks,Proof\n";
+    const headers = historyType === 'complaint' ? "Timestamp,Category,Location,Asset,Details,Assigned,Status,Remarks\n" : "Timestamp,Technician,Asset,Task,Status,Remarks,Reference\n";
     const rows = historyData.map(e => {
       const row = typeof e === 'object' && e !== null ? Object.values(e) : [];
       return row.join(',');
@@ -343,14 +382,13 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                     <div key={day.date} className="animate-slideDown">
                       <button onClick={() => setExpandedDate(expandedDate === day.date ? null : day.date)} className="w-full flex justify-between items-center p-3 rounded-lg border bg-emerald-50/20 border-emerald-100">
                         <div className="flex items-center gap-2.5"><div className="w-1 h-1 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></div><span className="text-[10px] font-bold text-emerald-900 italic">{day.date}</span></div>
-                        <div className="flex items-center gap-2"><span className="text-[7px] font-black uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full">100% COMPLETE</span><i className="fas fa-chevron-down text-[9px] opacity-20"></i></div>
+                        <div className="flex items-center gap-2"><span className="text-[7px] font-black uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full">100% COMPLETE ({day.doneCount})</span><i className="fas fa-chevron-down text-[9px] opacity-20"></i></div>
                       </button>
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-2 bg-emerald-50/50 rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-2 animate-slideDown">
                           {day.entries.map((e: any, idx: number) => (
                             <div key={idx} className="bg-white p-2 rounded-md border border-emerald-100 flex flex-col gap-2">
                               <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
-                              {e[6] && e[6].length > 5 && <button onClick={() => setProofImage(e[6])} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>}
                             </div>
                           ))}
                         </div>
@@ -366,23 +404,28 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-3 bg-rose-50/50 rounded-lg animate-slideDown space-y-3">
                            <div>
-                             <p className="text-[7px] font-black text-rose-600 uppercase mb-2 tracking-widest italic">Missed Task Identifiers</p>
-                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                               {day.missedAssets.map((a: Asset) => (
-                                 <div key={a.tag} className="bg-white p-2.5 rounded-xl border border-rose-100 text-left shadow-sm">
-                                   <p className="text-[9px] font-black text-rose-600 italic leading-none mb-1">{a.tag}</p>
-                                   <p className="text-[7px] font-bold text-slate-400 truncate uppercase">{a.room}</p>
+                             <p className="text-[7px] font-black text-rose-600 uppercase mb-2 tracking-widest italic">Missing Protocol Registry</p>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                               {day.missedAssets.map((a: any, idx: number) => (
+                                 <div key={idx} className="bg-white p-2.5 rounded-xl border border-rose-100 text-left shadow-sm">
+                                   <div className="flex justify-between items-start mb-1">
+                                      <p className="text-[9px] font-black text-rose-600 italic leading-none">{a.tag}</p>
+                                      <span className="text-[6px] font-black uppercase bg-slate-50 px-1 rounded">{a.room}</span>
+                                   </div>
+                                   <p className="text-[7px] font-bold text-slate-400 truncate uppercase">{a.detail || 'Unit Check'}</p>
                                  </div>
                                ))}
                              </div>
                            </div>
-                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                              {day.entries.map((e: any, idx: number) => (
-                                <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 flex flex-col gap-2">
-                                  <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
-                                  {e[6] && e[6].length > 5 && <button onClick={() => setProofImage(e[6])} className="bg-indigo-50 text-indigo-600 text-[6px] font-black uppercase py-1 rounded hover:bg-indigo-600 hover:text-white transition-all">View Proof</button>}
-                                </div>
-                              ))}
+                           <div className="pt-3 border-t border-rose-100">
+                             <p className="text-[7px] font-black text-emerald-600 uppercase mb-2 tracking-widest italic">Completed Protocol ({day.doneCount})</p>
+                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {day.entries.map((e: any, idx: number) => (
+                                  <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 flex flex-col gap-2">
+                                    <p className="text-[8px] font-black text-emerald-600">{e[2]}</p>
+                                  </div>
+                                ))}
+                             </div>
                            </div>
                         </div>
                       )}
@@ -403,16 +446,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
          </div>
          <LeaderboardItem category={category.id} performanceLogs={stats?.performanceLogs || []} limit={4} onRefresh={onRefresh} compact={false} />
       </section>
-
-      {/* PROOF IMAGE MODAL */}
-      {proofImage && (
-        <div className="fixed inset-0 bg-slate-950/95 z-[600] flex items-center justify-center p-4 backdrop-blur-xl animate-fadeIn" onClick={() => setProofImage(null)}>
-           <div className="bg-white p-2 rounded-3xl max-w-2xl w-full shadow-2xl relative overflow-hidden" onClick={e => e.stopPropagation()}>
-              <img src={proofImage} alt="Proof" className="w-full h-auto rounded-2xl" />
-              <button onClick={() => setProofImage(null)} className="absolute top-4 right-4 w-10 h-10 bg-black/50 text-white rounded-full flex items-center justify-center"><i className="fas fa-times"></i></button>
-           </div>
-        </div>
-      )}
 
       {/* DETAIL OVERLAY */}
       {detailView && (

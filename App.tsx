@@ -83,13 +83,17 @@ const App: React.FC = () => {
         // CORE LOGIC: AC Asset Status Derivation (Strictly Sheet-Driven)
         let processedAssets = [...(assetList || [])];
         if (currentCategory.id === 'ac') {
-          // Rule: Any AC with at least one "Open" complaint moves to Maintenance.
-          // Rule: If all complaints are "Resolved..." or "Completed", moves to Active.
+          /**
+           * BUG FIX: AC Lifecycle Enforcement
+           * Rule: Any AC with AT LEAST ONE complaint that is NOT "Resolved" moves to Maintenance.
+           * Rule: If ALL complaints for an AC are "Resolved" or "Completed", it returns to Active.
+           */
           const maintenanceTags = new Set(
             rawTickets
               .filter(t => {
-                const s = String(t.status || '').trim();
-                const isFixed = s === 'Resolved – Pending Admin Review' || s === 'Completed';
+                const s = String(t.status || '').trim().toLowerCase();
+                // Expanded "fixed" definition to capture all resolution variants used in the app
+                const isFixed = s.includes('resolved') || s.includes('completed');
                 return !isFixed && t.assetTag && t.assetTag !== 'N/A' && t.assetTag !== '';
               })
               .map(t => String(t.assetTag).trim().toUpperCase())
@@ -98,14 +102,12 @@ const App: React.FC = () => {
           processedAssets = processedAssets.map(a => {
             const tag = String(a.tag).trim().toUpperCase();
             
-            // Debug Logging for Step 5
-            const tagTickets = rawTickets.filter(t => String(t.assetTag).trim().toUpperCase() === tag);
-            const openCount = tagTickets.filter(t => !['Resolved – Pending Admin Review', 'Completed'].includes(t.status)).length;
-            const resolvedCount = tagTickets.filter(t => ['Resolved – Pending Admin Review', 'Completed'].includes(t.status)).length;
+            // Logic Enforcement Rule: IF count(open_complaints_for_AC) == 0 THEN move AC to Active
             const newStatus = maintenanceTags.has(tag) ? 'Maintenance' : 'Active';
             
-            if (a.status !== newStatus) {
-              console.log(`[AC STATUS CHANGE] ${tag}: ${a.status} -> ${newStatus} (Open: ${openCount}, Resolved: ${resolvedCount})`);
+            // Log changes only if state actually transitions
+            if (a.status !== newStatus && ['Active', 'Maintenance'].includes(a.status)) {
+              console.log(`[AC LIFECYCLE SYNC] ${tag}: ${a.status} -> ${newStatus}`);
             }
 
             if (['Active', 'Maintenance'].includes(a.status)) {
