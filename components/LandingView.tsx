@@ -79,18 +79,6 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
         </div>
       </div>
 
-      {/* Footer System Info */}
-      <div className="absolute bottom-10 left-0 w-full flex justify-between px-10 pointer-events-none opacity-20 animate-fadeIn">
-        <div className="text-[6px] font-black text-white uppercase tracking-widest italic flex flex-col gap-1">
-          <span>LATENCY: 12ms</span>
-          <span>ENCRYPTION: AES-256</span>
-        </div>
-        <div className="text-[6px] font-black text-white uppercase tracking-widest italic flex flex-col items-end gap-1">
-          <span>SYNC_MODE: FULL_DUPLEX</span>
-          <span>CORE_LOAD: 0.2%</span>
-        </div>
-      </div>
-
       <style>{`
         .perspective-1000 { perspective: 1000px; }
 
