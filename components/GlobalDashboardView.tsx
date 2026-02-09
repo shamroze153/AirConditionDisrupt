@@ -285,12 +285,12 @@ const GlobalDashboardView: React.FC<Props> = ({ stats, onRefresh, showToast }) =
            {/* Overdue Chart */}
            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col h-[440px] overflow-hidden" style={{ contain: 'paint layout' }}>
               <h4 className="text-[11px] font-black text-slate-950 uppercase italic tracking-[0.2em] mb-1">% Overdue Work Orders</h4>
-              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic mb-10">Critical Integrity (>7 Days)</p>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest italic mb-10">Critical Integrity (&gt;7 Days)</p>
               <div className="flex-1 flex items-end justify-between gap-2 px-1">
                  {yearlyPerformance.map((d, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-3 h-full justify-end group">
                        <button 
-                          onMouseEnter={(e) => handleHover(e, <div className="text-center p-1"><p className="text-[9px] font-black text-rose-600 uppercase mb-1">Critical Overdue</p><p className="text-xl font-black text-white">{d.overdue} of {d.total}</p><p className="text-[8px] text-white/70 italic mt-2">{d.overdue} critical age work orders (>7 days) in {d.month}, out of {d.total} active total.</p></div>)}
+                          onMouseEnter={(e) => handleHover(e, <div className="text-center p-1"><p className="text-[9px] font-black text-rose-600 uppercase mb-1">Critical Overdue</p><p className="text-xl font-black text-white">{d.overdue} of {d.total}</p><p className="text-[8px] text-white/70 italic mt-2">{d.overdue} critical age work orders (&gt;7 days) in {d.month}, out of {d.total} active total.</p></div>)}
                           onMouseLeave={() => setTooltip(null)}
                           onClick={() => handleOMToggle('Overdue', d.monthIdx)} 
                           className={`w-full rounded-t-lg transition-all border-none p-0 cursor-pointer ${d.overdue > 0 ? 'bg-rose-600' : 'bg-slate-50'}`} style={{ height: `${Math.max((d.overdue / Math.max(...yearlyPerformance.map(x => x.overdue), 1)) * 100, 5)}%` }}></button>
