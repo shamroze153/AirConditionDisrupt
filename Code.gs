@@ -1,5 +1,5 @@
 /**
- * DISRUPT_FM_ULTIMATE Backend v23.9 - Multi-Responder Attribution
+ * DISRUPT_FM_ULTIMATE Backend v24.1 - Balanced Distribution Support
  */
 
 const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE";
@@ -15,7 +15,7 @@ function initializeSheets(ss) {
   }
 
   const headers = {
-    'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category'],
+    'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category', 'AssignedTech'],
     'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp'],
     'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Reference', 'Category', 'Frequency'],
     'Performance_Log': ['Timestamp', 'Technician', 'Points', 'Reason', 'Category'],
@@ -32,6 +32,14 @@ function initializeSheets(ss) {
       sheet = ss.insertSheet(sheetName);
       sheet.appendRow(headers[sheetName]);
       sheet.getRange(1, 1, 1, headers[sheetName].length).setFontWeight("bold").setBackground("#f3f3f3");
+    } else {
+      // Ensure Technician column exists in Master_Assets
+      if (sheetName === 'Master_Assets') {
+        const lastCol = sheet.getLastColumn();
+        if (lastCol < 13) {
+          sheet.getRange(1, 13).setValue('AssignedTech').setFontWeight("bold").setBackground("#f3f3f3");
+        }
+      }
     }
   });
 }
@@ -63,7 +71,7 @@ function doGet(e) {
         return createJsonResponse(filteredAssets.map(row => ({
           id: row[0], tag: String(row[1] || '').trim(), room: String(row[2] || '').trim(), location: String(row[3] || '').trim(), campus: String(row[4] || '').trim(),
           floor: String(row[5] || '').trim(), brand: String(row[6] || '').trim(), cap: row[7], status: String(row[8] || '').trim(), year: row[9],
-          healthScore: row[10] || 100, category: String(row[11] || '').trim()
+          healthScore: row[10] || 100, category: String(row[11] || '').trim(), assignedTech: String(row[12] || '').trim()
         })));
 
       case 'get_stats':
@@ -89,7 +97,7 @@ function doGet(e) {
         const quarterlyComp = [];
 
         checkData.forEach(r => {
-          if (!r[0]) return; // Skip ghost rows
+          if (!r[0]) return; 
           const rDate = new Date(r[0]);
           const rDateStr = Utilities.formatDate(rDate, tz, "yyyy-MM-dd");
           const rCat = String(r[7] || '').toUpperCase().trim();
@@ -194,6 +202,36 @@ function doPost(e) {
 
   try {
     switch(action) {
+      case 'rebalance_assets':
+        const astSheetB = ss.getSheetByName('Master_Assets');
+        const astDataB = astSheetB.getDataRange().getValues();
+        const techStr = String(params.techs || '');
+        const techs = techStr.split(',').filter(t => t.trim() !== '');
+        
+        if (techs.length === 0) break;
+        
+        const acAssets = [];
+        for (let i = 1; i < astDataB.length; i++) {
+          if (String(astDataB[i][11]).toUpperCase() === category && String(astDataB[i][8]).toUpperCase() === 'ACTIVE') {
+            acAssets.push(i + 1); // Row number
+          }
+        }
+        
+        const total = acAssets.length;
+        const num = techs.length;
+        const base = Math.floor(total / num);
+        const rem = total % num;
+        
+        let assetIdx = 0;
+        for (let tIdx = 0; tIdx < num; tIdx++) {
+          const count = tIdx < rem ? base + 1 : base;
+          for (let c = 0; c < count; c++) {
+            const rowNum = acAssets[assetIdx++];
+            astSheetB.getRange(rowNum, 13).setValue(techs[tIdx]);
+          }
+        }
+        break;
+
       case 'log_gas_tx':
         const amountTx = Number(params.amount);
         const actionTypeTx = String(params.type || '').toUpperCase().trim();
@@ -209,7 +247,6 @@ function doPost(e) {
         break;
 
       case 'checklist_entry':
-        // Data Normalization to prevent false 'Missing' flags
         const cTag = String(params.assetTag || '').trim().toUpperCase();
         const cTech = String(params.technician || '').trim();
         const cTask = String(params.task || '').trim();
@@ -273,7 +310,6 @@ function doPost(e) {
            woSheetRev.getRange(rowIndexRev, 10).setValue(updatedRemarks);
         }
 
-        // MULTI-ATTRIBUTION LOGIC: Award points to all responders
         const techList = multiTechStr.split(',').map(t => t.trim()).filter(Boolean);
         const perfLog = ss.getSheetByName('Performance_Log');
         
@@ -411,7 +447,6 @@ function getSheetData(ss, name) {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (values.length <= 1) return [];
-  // Enhanced Filtering: Only non-empty rows based on Timestamp (Col 0)
   return values.slice(1).filter(row => row[0] && String(row[0]).trim() !== "");
 }
 

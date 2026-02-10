@@ -56,7 +56,22 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     const spare = assets.filter(a => a.status === 'Spare');
     const waiting = assets.filter(a => a.status === 'Waiting for Disposal');
     const disposed = assets.filter(a => a.status === 'Disposed');
-    return { active, maint, spare, waiting, disposed, installedTotal: active.length + maint.length + spare.length + waiting.length };
+    
+    // INTEGRITY SYNC: KPI strictly tracks the operational 161-unit fleet.
+    const installedTotal = active.length + maint.length; 
+    
+    return { active, maint, spare, waiting, disposed, installedTotal };
+  }, [assets]);
+
+  const operationalAssetMap = useMemo(() => {
+    const map = new Set<string>();
+    assets.forEach(a => {
+        const s = String(a.status || '').toUpperCase();
+        if (s === 'ACTIVE' || s === 'MAINTENANCE') {
+            map.add(String(a.tag).trim().toUpperCase());
+        }
+    });
+    return map;
   }, [assets]);
 
   const insights = useMemo(() => {
@@ -104,11 +119,26 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     const operationalAssets = assets.filter(a => {
       const s = String(a.status || '').trim().toUpperCase();
       return s === 'ACTIVE' || s === 'MAINTENANCE';
-    });
+    }).sort((a, b) => Number(a.id) - Number(b.id));
+
+    // Zone calculator for missed assets
+    const getZoneIdx = (tag: string) => {
+        const idx = operationalAssets.findIndex(a => a.tag === tag);
+        if (idx === -1) return -1;
+        const baseSize = Math.floor(operationalAssets.length / 4);
+        const remainder = operationalAssets.length % 4;
+        
+        let start = 0;
+        for(let z=0; z<4; z++) {
+            const count = z < remainder ? baseSize + 1 : baseSize;
+            if (idx >= start && idx < start + count) return z + 1;
+            start += count;
+        }
+        return 4;
+    };
     
     const groups: Record<string, { entries: any[], doneUniqueTags: Set<string>, frequency: string }> = {};
     
-    // Pass 1: Group data by date and normalize tags
     historyData.forEach(item => {
       const ts = item[0] || item.Timestamp;
       const d = parseHubDate(ts);
@@ -120,26 +150,24 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       (groups[dateKey].entries as any).push(item as any);
       
       const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase();
-      if (rawTag) groups[dateKey].doneUniqueTags.add(rawTag);
+      if (rawTag && operationalAssetMap.has(rawTag)) {
+          groups[dateKey].doneUniqueTags.add(rawTag);
+      }
     });
 
     const completeDays: any[] = [];
     const missedDays: any[] = [];
     
-    // Pass 2: Calculate completion per day
     Object.entries(groups).forEach(([date, meta]) => {
       let totalReq = operationalAssets.length;
       let missedAssetsList: any[] = [];
       
       if (category.id === 'electrical') {
-        // PER-CAMPUS ENHANCED LOGIC: Account for 3 campuses (Total 27 daily)
         const freq = meta.frequency || 'Daily';
         const campuses = ['140H', '141D', '141C'];
         const itemsInFreq = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === freq);
-        
         totalReq = itemsInFreq.length * campuses.length;
         
-        // Trace missing per-campus tasks
         campuses.forEach(campus => {
            itemsInFreq.forEach(task => {
               const expectedTag = `${task.id}_${campus}`.toUpperCase();
@@ -149,10 +177,9 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
            });
         });
       } else {
-        // AC Logic: Match against operational asset registry
         missedAssetsList = operationalAssets
           .filter(a => !meta.doneUniqueTags.has(String(a.tag).trim().toUpperCase()))
-          .map(a => ({ tag: a.tag, room: a.room }));
+          .map(a => ({ tag: a.tag, room: a.room, zone: getZoneIdx(a.tag) }));
       }
       
       const doneCount = meta.doneUniqueTags.size;
@@ -160,7 +187,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       
       const result = { 
         date, 
-        entries: meta.entries, 
+        entries: meta.entries.filter((e: any) => operationalAssetMap.has(String(e[2]).toUpperCase())), 
         doneCount, 
         totalRequired: totalReq, 
         missedAssets: missedAssetsList 
@@ -173,7 +200,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), 
       missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) 
     };
-  }, [historyData, assets, historyType, category.id]);
+  }, [historyData, assets, historyType, category.id, operationalAssetMap]);
 
   const fetchHistory = async () => {
     setIsFetchingHistory(true);
@@ -286,7 +313,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
         <div className="bg-slate-900 text-white p-4 rounded-xl shadow-lg flex flex-col justify-between h-28 relative overflow-hidden group border border-white/5">
           <div className={`absolute top-0 right-0 w-20 h-20 bg-${category.color}-500/10 blur-[30px] group-hover:bg-${category.color}-500/20 transition-all`}></div>
           <div><p className={`text-[8px] font-black uppercase tracking-[0.4em] text-${category.color}-400 mb-1`}>Total Assets</p><h2 className="text-3xl font-extrabold tracking-tighter italic">{assetGroups.installedTotal}</h2></div>
-          <div className="flex items-center gap-2"><div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></div><p className="text-[8px] font-bold uppercase text-white/40 tracking-widest italic">Live Sync</p></div>
+          <div className="flex items-center gap-2"><div className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></div><p className="text-[8px] font-bold uppercase text-white/40 tracking-widest italic">Operational Registry</p></div>
         </div>
         {[ 
           {label: 'Active', list: assetGroups.active, color: 'emerald', icon: 'shield-check'}, 
@@ -404,7 +431,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-3 bg-rose-50/50 rounded-lg animate-slideDown space-y-3">
                            <div>
-                             <p className="text-[7px] font-black text-rose-600 uppercase mb-2 tracking-widest italic">Missing Protocol Registry</p>
+                             <p className="text-[7px] font-black text-rose-600 uppercase mb-2 tracking-widest italic">Missing Protocol Registry ({day.totalRequired - day.doneCount})</p>
                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                {day.missedAssets.map((a: any, idx: number) => (
                                  <div key={idx} className="bg-white p-2.5 rounded-xl border border-rose-100 text-left shadow-sm">
@@ -412,7 +439,10 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                                       <p className="text-[9px] font-black text-rose-600 italic leading-none">{a.tag}</p>
                                       <span className="text-[6px] font-black uppercase bg-slate-50 px-1 rounded">{a.room}</span>
                                    </div>
-                                   <p className="text-[7px] font-bold text-slate-400 truncate uppercase">{a.detail || 'Unit Check'}</p>
+                                   <div className="flex justify-between items-center mt-1">
+                                      <p className="text-[7px] font-bold text-slate-400 truncate uppercase">{a.detail || 'Unit Check'}</p>
+                                      {a.zone && <span className="text-[6px] font-black bg-indigo-50 text-indigo-600 px-1 py-0.5 rounded">Zone {a.zone}</span>}
+                                   </div>
                                  </div>
                                ))}
                              </div>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types.ts';
-import { CAMPUS_ASSETS, ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY } from '../constants.ts';
+import { CAMPUS_ASSETS, ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY, CATEGORY_TECHS } from '../constants.ts';
 import { postAction, updatePoints, getReport, updateAssetStatus } from '../services/api.ts';
 
 interface Props {
@@ -22,84 +22,48 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   const [issueDetails, setIssueDetails] = useState('');
   const [showIssueModal, setShowIssueModal] = useState(false);
 
-  // Local state for zero-latency feedback (Green & Locked)
   const [locallyDoneTags, setLocallyDoneTags] = useState<Set<string>>(new Set());
-
-  // Store metadata for completion sync to see who completed shared items
-  const [electricalMetadata, setElectricalMetadata] = useState<Record<string, { tech: string, timestamp: string }>>({});
   const [syncingTags, setSyncingTags] = useState<Set<string>>(new Set());
+  const [isSubmittingIssue, setIsSubmittingIssue] = useState(false);
 
-  // Reset local tracking when context changes to prevent stale UI locks
   useEffect(() => {
     setLocallyDoneTags(new Set());
   }, [activeFrequency, selectedCampus]);
 
-  // Operational Logging for Sync Checks
-  useEffect(() => {
-    if (stats) {
-      console.log(`[CHECKLIST SYSTEM] Syncing Registry... Category: ${category.toUpperCase()}, Tech: ${techName}, Freq: ${activeFrequency}`);
-      const list = stats.hvac[activeFrequency.toLowerCase() as keyof typeof stats.hvac] || [];
-      console.log(`[CHECKLIST SYSTEM] Remote Records Found for ${activeFrequency}: ${list.length}`);
-    }
-  }, [category, activeFrequency, stats, techName]);
-
-  // Fetch detailed metadata for Electrical synchronization
-  useEffect(() => {
-    const fetchElectricalMeta = async () => {
-      try {
-        const now = new Date();
-        const todayDateStr = now.toISOString().split('T')[0];
-        const report = await getReport(category, 'checklist', '2024-01-01', todayDateStr);
-        const meta: Record<string, { tech: string, timestamp: string }> = {};
-        
-        const thisMonth = now.getMonth();
-        const thisYear = now.getFullYear();
-
-        report.forEach((row: any) => {
-          const rDate = new Date(row[0]);
-          const rDateStr = rDate.toISOString().split('T')[0];
-          const rFreq = row[8] || row.Frequency;
-          const rCat = String(row[7] || '').toUpperCase();
-          const rStatus = String(row[4] || row.Status || '').trim().toUpperCase();
-          
-          if (rCat !== category.toUpperCase()) return;
-          if (rStatus !== 'OK' && rStatus !== 'DONE' && rStatus !== 'COMPLETED') return;
-
-          let inWindow = false;
-          if (rFreq === ChecklistType.DAILY && rDateStr === todayDateStr) inWindow = true;
-          if (rFreq === ChecklistType.MONTHLY && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) inWindow = true;
-          if (rFreq === ChecklistType.QUARTERLY && Math.floor(rDate.getMonth() / 3) === Math.floor(thisMonth / 3) && rDate.getFullYear() === thisYear) inWindow = true;
-
-          if (inWindow && rFreq === activeFrequency) {
-            const tag = String(row[2] || row.AssetTag || '').trim().toUpperCase();
-            const tech = row[1] || row.Technician;
-            meta[tag] = { tech, timestamp: rDate.toLocaleString() };
-          }
-        });
-        setElectricalMetadata(meta);
-      } catch (e) {
-        console.error("Registry meta-sync failed", e);
-      }
-    };
-    if (category === 'electrical') fetchElectricalMeta();
-  }, [category, activeFrequency, stats]);
+  const activeTechList = CATEGORY_TECHS[category] || [];
+  
+  // Rule: Check if the current user is acting for an absent person
+  const isActingTech = useMemo(() => {
+    return techName !== activeTechList[zoneIdx];
+  }, [techName, activeTechList, zoneIdx]);
 
   const currentTaskItems = useMemo(() => {
     if (category === 'ac') {
-      return assets.filter(a => {
-        const status = String(a.status || '').trim().toUpperCase();
-        if (status !== 'ACTIVE') return false;
-        const id = Number(a.id);
-        if (zoneIdx === 0) return id >= 1 && id <= 40;
-        if (zoneIdx === 1) return id >= 41 && id <= 82;
-        if (zoneIdx === 2) return id >= 83 && id <= 121;
-        if (zoneIdx === 3) return id >= 122 && id <= 161;
-        return false;
-      }).map(a => ({ 
+      const operationalACs = assets
+        .filter(a => String(a.category).toLowerCase() === 'ac' && ['ACTIVE', 'MAINTENANCE'].includes(String(a.status).trim().toUpperCase()))
+        .sort((a, b) => Number(a.id) - Number(b.id));
+
+      const originalAssignee = activeTechList[zoneIdx];
+      let techAssets = operationalACs.filter(a => a.assignedTech === originalAssignee);
+
+      if (techAssets.length === 0) {
+        const numZones = 4;
+        const baseSize = Math.floor(operationalACs.length / numZones);
+        const remainder = operationalACs.length % numZones;
+        let start = 0;
+        for (let i = 0; i < zoneIdx; i++) {
+          start += (i < remainder ? baseSize + 1 : baseSize);
+        }
+        const end = start + (zoneIdx < remainder ? baseSize + 1 : baseSize);
+        techAssets = operationalACs.slice(start, end);
+      }
+
+      return techAssets.map(a => ({ 
         tag: a.tag, 
         label: a.room, 
         group: `Zone ${zoneIdx + 1}`, 
         id: a.id, 
+        status: a.status,
         exactLocation: `${a.campus} - ${a.floor} - ${a.room}`
       }));
     } else if (category === 'electrical') {
@@ -135,16 +99,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       return items;
     }
     return [];
-  }, [category, assets, zoneIdx, selectedCampus, activeFrequency]);
-
-  const groupedTasks = useMemo(() => {
-    const groups: Record<string, any[]> = {};
-    currentTaskItems.forEach(item => {
-      if (!groups[item.group]) groups[item.group] = [];
-      groups[item.group].push(item);
-    });
-    return groups;
-  }, [currentTaskItems]);
+  }, [category, assets, zoneIdx, selectedCampus, activeFrequency, activeTechList]);
 
   const currentDoneList = useMemo(() => {
     let list: string[] = [];
@@ -156,10 +111,10 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
 
   const completionStats = useMemo(() => {
     const calc = (listRaw: string[]) => {
-      if (currentTaskItems.length === 0) return 0;
+      if (currentTaskItems.length === 0) return 100;
       const list = [...listRaw.map(t => String(t || '').trim().toUpperCase()), ...Array.from(locallyDoneTags)];
       const count = currentTaskItems.filter(item => list.includes(String(item.tag || '').toUpperCase())).length;
-      return Math.round((count / currentTaskItems.length) * 100);
+      return count >= currentTaskItems.length ? 100 : Math.round((count / currentTaskItems.length) * 100);
     };
     return {
       daily: calc(stats?.hvac?.daily || []),
@@ -168,30 +123,37 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     };
   }, [currentTaskItems, stats, locallyDoneTags]);
 
+  const slaAlert = useMemo(() => {
+    const pct = completionStats[activeFrequency.toLowerCase() as 'daily' | 'monthly' | 'quarterly'];
+    if (pct < 100) {
+      return {
+        message: `SLA BREACH RISK: ${100 - pct}% of tasks pending. Incomplete cycles result in -10 Point Penalty.`,
+        isBreached: true
+      };
+    }
+    return { message: "Operational Integrity Met: SLA Target Synchronized.", isBreached: false };
+  }, [completionStats, activeFrequency]);
+
   const handleAction = async (itemTag: string, status: 'OK' | 'Issue') => {
-    if ((category === 'electrical') && !selectedCampus) {
+    if (syncingTags.has(itemTag)) return; 
+    if (category === 'electrical' && !selectedCampus) {
       showToast("Select Campus First");
       return;
     }
-
     if (status === 'Issue') {
       setCurrentTask(itemTag);
       setShowIssueModal(true);
       return;
     }
-
-    // Instant Feedback & Lock
     const tagNormalized = itemTag.toUpperCase();
-    setLocallyDoneTags(prev => new Set(prev).add(tagNormalized));
     setSyncingTags(prev => new Set(prev).add(itemTag));
-    
     try {
       await finalizeEntry(itemTag, "OK", "Routine Verified");
-      console.log(`[LOG] Task marked DONE. Tag: ${itemTag}, Tech: ${techName}, Freq: ${activeFrequency}, Time: ${new Date().toLocaleTimeString()}`);
+      setLocallyDoneTags(prev => new Set(prev).add(tagNormalized));
     } catch (e) {
-      setLocallyDoneTags(prev => { const n = new Set(prev); n.delete(tagNormalized); return n; });
+      showToast("Transmission Failure");
+    } finally {
       setSyncingTags(prev => { const n = new Set(prev); n.delete(itemTag); return n; });
-      showToast("Transmission Failure. Retrying...");
     }
   };
 
@@ -205,12 +167,8 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     fd.append('task', `${activeFrequency} ${category.toUpperCase()} Check`);
     fd.append('status', status); 
     fd.append('remarks', remarks);
-    
-    showToast(`Synchronizing Registry...`);
     await postAction(fd);
-
     if (status === "OK") await updatePoints(category, techName, 1, `${category.toUpperCase()} ${activeFrequency} Verification`);
-
     if (status === "Issue") {
       const taskItem = currentTaskItems.find(it => it.tag === itemTag);
       const wofd = new FormData();
@@ -223,7 +181,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       wofd.append('assignedTech', techName); 
       wofd.append('status', 'Open');
       await postAction(wofd);
-      showToast("Work Order Dispatched");
     }
     refreshData();
   };
@@ -231,13 +188,28 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   return (
     <div className="h-full w-full bg-slate-50 flex flex-col pb-20 overflow-hidden">
       <div className="bg-white pt-6 pb-4 px-6 shadow-sm z-30 sticky top-0 border-b">
+        <div className={`mb-6 p-4 rounded-2xl flex items-center gap-4 border transition-all ${slaAlert.isBreached ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-emerald-50 border-emerald-100 text-emerald-600'}`}>
+           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${slaAlert.isBreached ? 'bg-white' : 'bg-white'}`}>
+              <i className={`fas fa-${slaAlert.isBreached ? 'exclamation-triangle animate-pulse' : 'shield-check'}`}></i>
+           </div>
+           <div>
+              <p className="text-[7px] font-black uppercase tracking-widest italic opacity-50 mb-0.5">Operational Protocol</p>
+              <p className="text-[10px] font-black uppercase tracking-tight leading-none">{slaAlert.message}</p>
+           </div>
+        </div>
+
         <div className="flex justify-between items-center mb-5">
-          <button onClick={onBack} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 active:scale-90">
+          <button onClick={onBack} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 active:scale-90 shadow-inner">
             <i className="fas fa-arrow-left"></i>
           </button>
           <div className="text-right">
-            <h3 className="font-black text-slate-900 text-lg uppercase italic tracking-tighter leading-none">{category.toUpperCase()} HUB</h3>
-            <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 tracking-widest italic">{techName} Operational</p>
+            <div className="flex items-center justify-end gap-2">
+               {isActingTech && (
+                 <span className="bg-indigo-600 text-white text-[7px] font-black px-2 py-0.5 rounded-full uppercase italic animate-pulse">Acting Coverage</span>
+               )}
+               <h3 className="font-black text-slate-900 text-lg uppercase italic tracking-tighter leading-none">{category.toUpperCase()} HUB</h3>
+            </div>
+            <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 tracking-widest italic">{techName} / Sector {zoneIdx + 1}</p>
           </div>
         </div>
 
@@ -254,27 +226,6 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
             ))}
           </div>
         )}
-
-        <div className="flex items-center justify-between gap-4 py-3 border-t border-slate-50 mt-2 px-2">
-           <div className="flex gap-6">
-              {[
-                { label: 'Daily', pct: completionStats.daily },
-                { label: 'Monthly', pct: completionStats.monthly },
-                { label: 'Quartly', pct: completionStats.quarterly }
-              ].map(stat => (
-                <div key={stat.label} className="flex flex-col items-center">
-                   <span className="text-[7px] font-black text-slate-300 uppercase italic mb-1">{stat.label}</span>
-                   <div className={`text-xl font-black italic leading-none ${stat.pct === 100 ? 'text-emerald-500' : 'text-slate-900'}`}>{stat.pct}<span className="text-[10px] ml-0.5">%</span></div>
-                </div>
-              ))}
-           </div>
-           <div className="flex-1 max-w-[120px] flex flex-col items-end">
-              <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Progress</span>
-              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-slate-900 transition-all duration-1000" style={{ width: `${completionStats[activeFrequency.toLowerCase() as keyof typeof completionStats] || 0}%` }}></div>
-              </div>
-           </div>
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-8 hide-scroll">
@@ -284,15 +235,20 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
             <p className="text-xs font-black uppercase tracking-[0.5em]">Select Building Segment</p>
           </div>
         ) : (
-          Object.entries(groupedTasks).map(([group, tasks]) => (
+          Object.entries(useMemo(() => {
+            const groups: Record<string, any[]> = {};
+            currentTaskItems.forEach(item => {
+              if (!groups[item.group]) groups[item.group] = [];
+              groups[item.group].push(item);
+            });
+            return groups;
+          }, [currentTaskItems])).map(([group, tasks]) => (
             <div key={group} className="space-y-3">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-2">{group}</h4>
                {(tasks as any[]).map((item, i) => {
                  const tagNormalized = String(item.tag || '').toUpperCase();
                  const isDone = locallyDoneTags.has(tagNormalized) || currentDoneList.includes(tagNormalized);
                  const isSyncing = syncingTags.has(item.tag);
-                 const metadata = electricalMetadata[tagNormalized];
-
                  return (
                    <div key={i} className={`bg-white p-5 rounded-[2rem] border-2 transition-all shadow-sm ${isDone ? 'border-emerald-100 bg-emerald-50/20' : isSyncing ? 'border-amber-100 bg-amber-50/10' : 'border-white'}`}>
                      <div className="flex justify-between items-center">
@@ -302,28 +258,10 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                            <span className="text-[7px] text-slate-300 font-bold uppercase tracking-tighter italic">{item.exactLocation}</span>
                          </div>
                          <p className="text-[11px] font-black text-slate-900 uppercase italic leading-tight">{item.label}</p>
-                         
-                         {isDone && (
-                           <div className="mt-2 flex flex-col gap-1 animate-fadeIn">
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-1 h-1 bg-emerald-500 rounded-full"></div>
-                                <p className="text-[8px] font-black text-emerald-600 uppercase tracking-widest italic">
-                                  {locallyDoneTags.has(tagNormalized) ? `Verified by You` : `Verified by ${metadata?.tech || 'Field Team'}`}
-                                </p>
-                              </div>
-                              {metadata?.timestamp && <p className="text-[6px] font-bold text-slate-300 ml-2.5 uppercase italic">{metadata.timestamp}</p>}
-                           </div>
-                         )}
                        </div>
-                       
                        <div className="flex items-center gap-2">
                          {isDone ? (
-                           <div className="flex flex-col items-center gap-1">
-                             <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg animate-fadeIn shadow-emerald-200"><i className="fas fa-check text-xs"></i></div>
-                             <span className="text-[6px] font-black text-emerald-400 uppercase tracking-tighter italic">Verified</span>
-                           </div>
-                         ) : isSyncing ? (
-                           <div className="bg-slate-100 text-slate-400 w-9 h-9 rounded-2xl flex items-center justify-center shadow-inner"><i className="fas fa-circle-notch animate-spin text-xs"></i></div>
+                           <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg"><i className="fas fa-check text-xs"></i></div>
                          ) : (
                            <div className="flex gap-2">
                              <button onClick={() => handleAction(item.tag, 'OK')} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all shadow-md">Done</button>
@@ -347,7 +285,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
               <textarea value={issueDetails} onChange={e => setIssueDetails(e.target.value)} placeholder="Narrate the discrepancy..." className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 focus:border-rose-500 outline-none font-bold text-xs min-h-[160px] resize-none italic" />
               <div className="grid grid-cols-2 gap-4 mt-8">
                  <button onClick={() => setShowIssueModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px] italic">Abort</button>
-                 <button onClick={() => { if(currentTask) { finalizeEntry(currentTask, "Issue", issueDetails); setShowIssueModal(false); setIssueDetails(''); setCurrentTask(null); }}} className="bg-rose-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-2xl">Confirm Fault</button>
+                 <button onClick={async () => { if(currentTask && !isSubmittingIssue) { setIsSubmittingIssue(true); try { await finalizeEntry(currentTask, "Issue", issueDetails); setShowIssueModal(false); setIssueDetails(''); setCurrentTask(null); } catch (e) { showToast("Sync Error"); } finally { setIsSubmittingIssue(false); } } }} disabled={isSubmittingIssue || !issueDetails.trim()} className="bg-rose-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-2xl disabled:opacity-30">{isSubmittingIssue ? 'Submitting...' : 'Confirm Fault'}</button>
               </div>
            </div>
         </div>

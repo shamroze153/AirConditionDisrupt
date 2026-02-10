@@ -16,15 +16,29 @@ const App: React.FC = () => {
   const [screen, setScreen] = useState<'landing' | 'category-hub' | 'app' | 'checklist' | 'global-dashboard'>('landing');
   const [currentCategory, setCurrentCategory] = useState<FMCategory>(FM_CATEGORIES[0]);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [globalStats, setGlobalStats] = useState<GlobalStatsResponse | null>(null);
+
+  // CACHE HYDRATION
+  const [assets, setAssets] = useState<Asset[]>(() => {
+    const cached = localStorage.getItem('fm_cache_assets');
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [tickets, setTickets] = useState<Ticket[]>(() => {
+    const cached = localStorage.getItem('fm_cache_tickets');
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [stats, setStats] = useState<StatsResponse | null>(() => {
+    const cached = localStorage.getItem('fm_cache_stats');
+    return cached ? JSON.parse(cached) : null;
+  });
+  const [globalStats, setGlobalStats] = useState<GlobalStatsResponse | null>(() => {
+    const cached = localStorage.getItem('fm_cache_global_stats');
+    return cached ? JSON.parse(cached) : null;
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [connError, setConnError] = useState<boolean>(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
-  
   const [newTicketPulse, setNewTicketPulse] = useState(false);
 
   const [acAttendance, setAcAttendance] = useState<Record<string, boolean>>(() => {
@@ -42,8 +56,7 @@ const App: React.FC = () => {
   });
 
   const attendance = currentCategory.id === 'electrical' ? elecAttendance : acAttendance;
-
-  const prevTicketCount = useRef<number>(0);
+  const prevTicketCount = useRef<number>(tickets.length);
   const beepAudio = useRef<HTMLAudioElement | null>(null);
 
   const [activeZone, setActiveZone] = useState<number>(0);
@@ -60,39 +73,44 @@ const App: React.FC = () => {
 
   const refreshData = useCallback(async (isSilent = false) => {
     try {
-      if (screen === 'landing' || screen === 'category-hub') {
-        const globalData = await fetchGlobalStats();
-        if (globalData) setGlobalStats(globalData);
-        setConnError(false);
-        return;
-      }
-      
-      if (!isSilent) setIsLoading(true);
+      const hasInitialData = screen === 'landing' || screen === 'category-hub' ? !!globalStats : (!!assets.length && !!stats);
+      if (!isSilent && !hasInitialData) setIsLoading(true);
 
-      if (screen === 'global-dashboard' || currentCategory.id === 'seating') {
+      if (screen === 'landing' || screen === 'category-hub' || screen === 'global-dashboard' || currentCategory.id === 'seating') {
         const globalData = await fetchGlobalStats();
-        if (globalData) setGlobalStats(globalData);
+        if (globalData) {
+          setGlobalStats(globalData);
+          localStorage.setItem('fm_cache_global_stats', JSON.stringify(globalData));
+        }
       } else {
         const [assetList, statData] = await Promise.all([
           fetchAssets(currentCategory.id),
           fetchStats(currentCategory.id)
         ]);
         
+        // INTEGRITY SYNC: Enforce exactly 161 unique operational units
+        // Filters out ghost rows (empty room/tag) and duplicates (same tag).
+        const seenTags = new Set<string>();
+        const sanitizedAssets = (assetList || []).filter(a => {
+          const tag = String(a.tag || '').trim().toUpperCase();
+          const room = String(a.room || '').trim();
+          const id = String(a.id || '').trim();
+          
+          if (!tag || tag === 'N/A' || tag === 'UNDEFINED' || !room || !id) return false;
+          if (seenTags.has(tag)) return false;
+          
+          seenTags.add(tag);
+          return true;
+        });
+
         const rawTickets = statData.complaints || [];
         
-        // CORE LOGIC: AC Asset Status Derivation (Strictly Sheet-Driven)
-        let processedAssets = [...(assetList || [])];
+        let processedAssets = [...sanitizedAssets];
         if (currentCategory.id === 'ac') {
-          /**
-           * BUG FIX: AC Lifecycle Enforcement
-           * Rule: Any AC with AT LEAST ONE complaint that is NOT "Resolved" moves to Maintenance.
-           * Rule: If ALL complaints for an AC are "Resolved" or "Completed", it returns to Active.
-           */
           const maintenanceTags = new Set(
             rawTickets
               .filter(t => {
                 const s = String(t.status || '').trim().toLowerCase();
-                // Expanded "fixed" definition to capture all resolution variants used in the app
                 const isFixed = s.includes('resolved') || s.includes('completed');
                 return !isFixed && t.assetTag && t.assetTag !== 'N/A' && t.assetTag !== '';
               })
@@ -101,29 +119,18 @@ const App: React.FC = () => {
 
           processedAssets = processedAssets.map(a => {
             const tag = String(a.tag).trim().toUpperCase();
-            
-            // Logic Enforcement Rule: IF count(open_complaints_for_AC) == 0 THEN move AC to Active
             const newStatus = maintenanceTags.has(tag) ? 'Maintenance' : 'Active';
-            
-            // Log changes only if state actually transitions
-            if (a.status !== newStatus && ['Active', 'Maintenance'].includes(a.status)) {
-              console.log(`[AC LIFECYCLE SYNC] ${tag}: ${a.status} -> ${newStatus}`);
-            }
-
+            // Only update status if it's part of the operational fleet (Active/Maintenance)
+            // This preserves 'Spare' or 'Disposed' if they somehow have a ticket.
             if (['Active', 'Maintenance'].includes(a.status)) {
-              return {
-                ...a,
-                status: newStatus
-              };
+              return { ...a, status: newStatus };
             }
             return a;
           });
         }
 
         if (rawTickets.length > prevTicketCount.current && prevTicketCount.current > 0) {
-          if (audioEnabled) {
-            beepAudio.current?.play().catch(() => {});
-          }
+          if (audioEnabled) { beepAudio.current?.play().catch(() => {}); }
           showToast("System Activity Detected");
           setNewTicketPulse(true);
           setTimeout(() => setNewTicketPulse(false), 5000);
@@ -133,22 +140,26 @@ const App: React.FC = () => {
         setAssets(processedAssets);
         setTickets(rawTickets);
         setStats(statData);
+
+        localStorage.setItem('fm_cache_assets', JSON.stringify(processedAssets));
+        localStorage.setItem('fm_cache_tickets', JSON.stringify(rawTickets));
+        localStorage.setItem('fm_cache_stats', JSON.stringify(statData));
       }
       setConnError(false);
     } catch (error) {
-      console.error("Data refresh lifecycle error:", error);
+      console.error("Sync Error:", error);
       setConnError(true);
       if (!isSilent) showToast("Cloud Connection Error");
     } finally {
-      if (!isSilent) setIsLoading(false);
+      setIsLoading(false);
     }
-  }, [audioEnabled, currentCategory, screen]);
+  }, [audioEnabled, currentCategory, screen, assets.length, stats, globalStats]);
 
   useEffect(() => {
-    const timer = setTimeout(() => refreshData(), 100);
+    const timer = setTimeout(() => refreshData(true), 100);
     const interval = setInterval(() => {
       refreshData(true);
-    }, 10000); // 10s refresh for near real-time sync
+    }, 15000); 
     return () => {
       clearTimeout(timer);
       clearInterval(interval);
@@ -167,35 +178,19 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartApp = () => {
-    setAudioEnabled(true); 
-    setScreen('category-hub');
-  };
-
-  const handleSelectCategory = (category: FMCategory) => {
-    setCurrentCategory(category);
-    setActiveTab(AppTab.DASHBOARD);
-    setScreen('app');
-  };
-
-  const handleOpenChecklist = (zoneIdx: number, tech: string) => {
-    setActiveZone(zoneIdx);
-    setActiveTech(tech);
-    setScreen('checklist');
-  };
-
-  const handleOpenGlobal = () => {
-    setScreen('global-dashboard');
-  };
+  const handleStartApp = () => { setAudioEnabled(true); setScreen('category-hub'); };
+  const handleSelectCategory = (category: FMCategory) => { setCurrentCategory(category); setActiveTab(AppTab.DASHBOARD); setScreen('app'); };
+  const handleOpenChecklist = (zoneIdx: number, tech: string) => { setActiveZone(zoneIdx); setActiveTech(tech); setScreen('checklist'); };
+  const handleOpenGlobal = () => { setScreen('global-dashboard'); };
 
   return (
-    <div className="h-screen w-full flex flex-col bg-slate-50 relative overflow-hidden transition-all duration-500 font-inter">
+    <div className="h-screen w-full flex flex-col bg-slate-50 relative overflow-hidden transition-all duration-500 font-inter text-[11px]">
       {toastMsg && <NotificationToast message={toastMsg} />}
       
-      {isLoading && !connError && (
+      {isLoading && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] glass-panel px-4 py-1.5 rounded-full shadow-lg border border-indigo-50 flex items-center gap-2 animate-fadeIn">
            <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
-           <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Syncing Hub...</span>
+           <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Hydrating Hub...</span>
         </div>
       )}
 
@@ -259,7 +254,7 @@ const App: React.FC = () => {
                     assets={assets} 
                     tickets={tickets} 
                     stats={stats} 
-                    onRefresh={refreshData} 
+                    onRefresh={() => refreshData(false)} 
                     onViewTech={() => setActiveTab(AppTab.TECH)} 
                   />
                 )}
@@ -269,7 +264,7 @@ const App: React.FC = () => {
                     assets={assets} 
                     tickets={tickets} 
                     attendance={attendance} 
-                    onRefresh={refreshData} 
+                    onRefresh={() => refreshData(false)} 
                     showToast={showToast} 
                   />
                 )}
@@ -282,7 +277,7 @@ const App: React.FC = () => {
                     assets={assets} 
                     onOpenChecklist={handleOpenChecklist} 
                     showToast={showToast} 
-                    onRefresh={refreshData} 
+                    onRefresh={() => refreshData(false)} 
                     stats={stats} 
                   />
                 )}
@@ -301,23 +296,15 @@ const App: React.FC = () => {
           stats={stats} 
           onBack={() => setScreen('app')} 
           showToast={showToast} 
-          refreshData={refreshData} 
+          refreshData={() => refreshData(true)} 
         />
       )}
 
       {screen === 'global-dashboard' && (
         <div className="h-full flex flex-col animate-fadeIn">
-          <Header 
-            title="Disrupt FM Global Dashboard" 
-            onBack={() => setScreen('category-hub')} 
-            color="slate"
-          />
+          <Header title="Disrupt FM Global Dashboard" onBack={() => setScreen('category-hub')} color="slate" />
           <div className="flex-1 overflow-y-auto hide-scroll pb-10">
-            <GlobalDashboardView 
-              stats={globalStats} 
-              onRefresh={refreshData} 
-              showToast={showToast} 
-            />
+            <GlobalDashboardView stats={globalStats} onRefresh={() => refreshData(false)} showToast={showToast} />
           </div>
         </div>
       )}

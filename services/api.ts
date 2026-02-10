@@ -60,6 +60,14 @@ export const postAction = async (formData: FormData): Promise<void> => {
   }
 };
 
+export const rebalanceAssets = async (category: CategoryKey, techs: string[]): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'rebalance_assets');
+  fd.append('category', category.toUpperCase());
+  fd.append('techs', techs.join(','));
+  await postAction(fd);
+};
+
 export const fetchAssets = async (category: CategoryKey): Promise<Asset[]> => 
   safeFetch(WEB_APP_URL, { action: 'get_assets', category });
 
@@ -205,5 +213,15 @@ export const deductSLAPenalty = async (category: CategoryKey, tech: string, tick
   fd.append('technician', tech);
   fd.append('points', '-25');
   fd.append('reason', `SLA BREACH: Ticket #${ticketId} open >7 days`);
+  await postAction(fd);
+};
+
+export const logTakeover = async (category: CategoryKey, originalTech: string, actingTech: string): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'log_insight');
+  fd.append('category', category.toUpperCase());
+  fd.append('assetTag', 'TAKEOVER');
+  fd.append('insightCategory', 'Absence Management');
+  fd.append('details', `[TAKEOVER] Original: ${originalTech}, Acting: ${actingTech}, Reason: Absence`);
   await postAction(fd);
 };

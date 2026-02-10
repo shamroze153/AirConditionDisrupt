@@ -11,6 +11,7 @@ export interface Asset {
   year?: number;
   healthScore?: number;
   category?: string;
+  assignedTech?: string;
 }
 
 export interface Ticket {
