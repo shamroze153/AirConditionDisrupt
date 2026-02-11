@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, CategoryKey } from '../types.ts';
 import { postAction, updateAssetStatus, adminReviewTicket, rebalanceAssets } from '../services/api.ts';
@@ -16,56 +17,35 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
   const [isOpsUnlocked, setIsOpsUnlocked] = useState(false);
   const [mainPinInput, setMainPinInput] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
   const [lookupId, setLookupId] = useState('');
   const [foundAsset, setFoundAsset] = useState<Asset | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  
   const [faultDesc, setFaultDesc] = useState('');
-  const [isManualAssign, setIsManualAssign] = useState(false);
   const [complaintType, setComplaintType] = useState<'Proactive' | 'Reactive'>('Proactive');
-
-  const [selCampus, setSelCampus] = useState('');
-  const [selFloor, setSelFloor] = useState('');
-  const [selLocation, setSelLocation] = useState(''); 
-  
-  const techList = CATEGORY_TECHS[category] || [];
-  const [manualTech, setManualTech] = useState(techList[0] || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isRebalancing, setIsRebalancing] = useState(false);
+  // Renamed setAssignedFeedback to setAssignmentFeedback to match usage on lines 87 and 88
   const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null);
-
   const [submittingRows, setSubmittingRows] = useState<Set<number>>(new Set());
-  const [pendingStars, setPendingStars] = useState<Record<number, number>>({});
-  const [pendingReasons, setPendingReasons] = useState<Record<number, string>>({});
-  
-  const [reasonModal, setReasonModal] = useState<{ rowIndex: number, stars: number } | null>(null);
-  const [tempReason, setTempReason] = useState('');
 
-  const campuses = Object.keys(CAMPUS_ROOMS);
-  
-  const floors = useMemo(() => {
-    if (!selCampus) return [];
-    return Object.keys(CAMPUS_ROOMS[selCampus] || {});
-  }, [selCampus]);
+  // Review Flow State
+  const [reviewTicket, setReviewTicket] = useState<Ticket | null>(null);
+  const [selectedStars, setSelectedStars] = useState<number>(0);
+  const [hoverStars, setHoverStars] = useState<number>(0);
+  const [reviewReason, setReviewReason] = useState('');
+  const [isReviewing, setIsReviewing] = useState(false);
 
+  const techList = CATEGORY_TECHS[category] || [];
+
+  // Separation of concerns: Active Pipeline vs Audit Ledger
   const liveQueue = useMemo(() => 
-    tickets.filter(t => !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)),
-  [tickets]);
+    tickets.filter(t => !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)), 
+    [tickets]
+  );
 
-  const distributionStats = useMemo(() => {
-    if (category !== 'ac') return null;
-    const activeACs = assets.filter(a => String(a.category).toLowerCase() === 'ac' && String(a.status).toUpperCase() === 'ACTIVE');
-    const counts: Record<string, number> = {};
-    techList.forEach(t => counts[t] = 0);
-    activeACs.forEach(a => {
-      if (a.assignedTech && counts[a.assignedTech] !== undefined) counts[a.assignedTech]++;
-    });
-    const values = Object.values(counts);
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    return { counts, total: activeACs.length, imbalance: max - min };
-  }, [assets, category, techList]);
+  const auditQueue = useMemo(() => 
+    tickets.filter(t => t.status === 'Resolved – Pending Admin Review'),
+    [tickets]
+  );
 
   const handleLookup = (val: string) => {
     setLookupId(val);
@@ -75,100 +55,39 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
     setTimeout(() => { setFoundAsset(asset || null); setIsSearching(false); }, 800);
   };
 
-  const handleMainPinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (mainPinInput === '5566') { setIsOpsUnlocked(true); setMainPinInput(''); } 
-    else { showToast("Access Denied"); setMainPinInput(''); }
-  };
-
-  const handleRebalance = async () => {
-    const presentTechs = techList.filter(t => !!attendance[t]);
-    if (presentTechs.length === 0) {
-      showToast("No active technicians present for rebalance.");
-      return;
-    }
-    if (!window.confirm(`Execute full load rebalance among ${presentTechs.length} present technicians?`)) return;
-    
-    setIsRebalancing(true);
-    try {
-      await rebalanceAssets(category, presentTechs);
-      showToast("Balanced Distribution Synced to Backend");
-      onRefresh();
-    } catch (e) {
-      showToast("Sync Failure during rebalance");
-    } finally {
-      setIsRebalancing(false);
-    }
+  const handleMainPinSubmit = (e: React.FormEvent) => { 
+    e.preventDefault(); 
+    if (mainPinInput === '5566') { 
+      setIsOpsUnlocked(true); 
+      setMainPinInput(''); 
+    } else { 
+      showToast("Access Denied"); 
+      setMainPinInput(''); 
+    } 
   };
 
   const handleDispatch = async () => {
-    if (isSearching || isSubmitting) return;
-    if (!faultDesc.trim()) return;
-    if (category === 'ac' && !foundAsset) return;
-    if (category !== 'ac' && (!selCampus || !selFloor || !selLocation)) return;
-
+    if (isSearching || isSubmitting || !faultDesc.trim() || (category === 'ac' && !foundAsset)) return;
     setIsSubmitting(true);
-    let assignee = manualTech;
-    let finalStatus = 'Open'; 
-    
-    if (!isManualAssign) {
-      if (category === 'handyman') {
-        assignee = 'Sajid';
-      } else {
-        const presentTechs = techList.filter(t => attendance[t] === true);
-        if (presentTechs.length === 0) {
-          assignee = "Unassigned";
-          finalStatus = "Pending Assignment";
-        } else {
-          const load: Record<string, number> = {};
-          presentTechs.forEach(t => load[t] = 0);
-          tickets.forEach(t => {
-            if (String(t.category).toUpperCase() === category.toUpperCase() && 
-                !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)) {
-              if (load[t.assignedTo] !== undefined) load[t.assignedTo]++;
-            }
-          });
-          const minLoad = Math.min(...Object.values(load));
-          const candidates = presentTechs.filter(t => load[t] === minLoad);
-          assignee = candidates[0];
-        }
-      }
-    }
-
     try {
+      const activeTechs = techList.filter(t => attendance[t]);
+      let assigned = activeTechs[0] || 'Unassigned';
       const fd = new FormData();
       fd.append('action', 'complain');
       fd.append('category', category.toUpperCase()); 
       fd.append('complaintType', complaintType);
-      
       const targetTag = String(foundAsset?.tag || 'N/A');
-      if (category === 'ac') {
-        fd.append('location', `${foundAsset?.campus} - ${foundAsset?.floor} - ${foundAsset?.room}`);
-        fd.append('assetTag', targetTag);
-      } else {
-        fd.append('location', `${selCampus} - ${selFloor} - ${selLocation}`);
-        fd.append('assetTag', 'N/A');
-      }
-
+      fd.append('location', category === 'ac' ? `${foundAsset?.campus} - ${foundAsset?.floor} - ${foundAsset?.room}` : 'Command Assigned');
+      fd.append('assetTag', targetTag);
       fd.append('details', faultDesc);
-      fd.append('assignedTech', assignee);
-      fd.append('status', finalStatus);
-
+      fd.append('assignedTech', assigned);
+      fd.append('status', 'Open');
       await postAction(fd);
+
       if (category === 'ac' && targetTag !== 'N/A') await updateAssetStatus(category, targetTag, 'Maintenance');
 
-      setAssignmentFeedback(assignee);
-      setTimeout(() => {
-        setIsModalOpen(false);
-        setAssignmentFeedback(null);
-        setLookupId('');
-        setFoundAsset(null);
-        setFaultDesc('');
-        setSelCampus('');
-        setSelFloor('');
-        setSelLocation('');
-        onRefresh();
-      }, 3000);
+      setAssignmentFeedback(assigned);
+      setTimeout(() => { setIsModalOpen(false); setAssignmentFeedback(null); setFaultDesc(''); onRefresh(); }, 2500);
     } catch (e) { showToast("Sync Error"); } finally { setIsSubmitting(false); }
   };
 
@@ -183,11 +102,59 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
       fd.append('category', category);
       fd.append('status', newStatus); 
       fd.append('resolvedBy', 'Command Hub');
-      fd.append('remarks', `Administrative Action: ${newStatus}`);
+      fd.append('remarks', `Administrative Protocol Override: ${newStatus}`);
       await postAction(fd);
+
+      if (t.assetTag && t.assetTag !== 'N/A') {
+        await updateAssetStatus(category, t.assetTag, 'Active');
+      }
+
       onRefresh();
+      showToast("Record Finalized in Registry");
+    } catch (e) { showToast("Sync Error"); } finally { setSubmittingRows(prev => { const n = new Set(prev); n.delete(t.rowIndex); return n; }); }
+  };
+
+  const starConfig = [
+    { stars: 1, points: -1, reasonRequired: true },
+    { stars: 2, points: 0, reasonRequired: false },
+    { stars: 3, points: 1, reasonRequired: false },
+    { stars: 4, points: 2, reasonRequired: false },
+    { stars: 5, points: 3, reasonRequired: true },
+  ];
+
+  const handleReviewSubmit = async () => {
+    if (!reviewTicket || selectedStars === 0 || isReviewing) return;
+    
+    const config = starConfig.find(c => c.stars === selectedStars);
+    if (config?.reasonRequired && !reviewReason.trim()) return;
+
+    setIsReviewing(true);
+    try {
+      // Points allocation based on star config
+      const points = config?.points || 0;
+      
+      // Extract tech name from resolvedBy field (format: TechName • Timestamp)
+      const technicianName = (reviewTicket.resolvedBy || reviewTicket.assignedTo).split('•')[0].trim();
+
+      await adminReviewTicket(
+        category,
+        technicianName,
+        reviewTicket.rowIndex,
+        selectedStars,
+        points,
+        reviewTicket.assetTag,
+        reviewReason
+      );
+
+      showToast("Review Registry Synchronized");
+      setReviewTicket(null);
+      setSelectedStars(0);
+      setReviewReason('');
+      onRefresh();
+    } catch (e) {
+      showToast("Registry Submission Failure");
     } finally {
-      setSubmittingRows(prev => { const n = new Set(prev); n.delete(t.rowIndex); return n; });
+      setIsReviewing(false);
     }
   };
 
@@ -207,99 +174,194 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto p-4 md:p-8 space-y-8 animate-fadeIn">
+    <div className="max-w-[1400px] mx-auto p-4 md:p-8 space-y-12 animate-fadeIn">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 px-2">
-        <div>
-          <p className="text-[7px] md:text-[8px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1 italic">Operations Ledger</p>
-          <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter leading-none italic uppercase">Deployment Pipeline</h2>
+        <div><p className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1 italic">Operations Ledger</p><h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter leading-none italic uppercase">Deployment Pipeline</h2></div>
+        <button onClick={() => setIsModalOpen(true)} className="bg-slate-950 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[9px] shadow-xl flex items-center gap-3 italic"><span>Raise Issue</span><i className="fas fa-plus-circle text-indigo-400"></i></button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* ACTIVE PIPELINE */}
+        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col min-h-[420px] overflow-hidden">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/20">
+            <div className="flex items-center gap-3">
+               <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
+               <h3 className="font-black text-slate-900 uppercase text-[10px] tracking-widest">Live Pipeline</h3>
+            </div>
+            <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase italic">{liveQueue.length} Active Records</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 space-y-3 hide-scroll">
+            {liveQueue.length > 0 ? liveQueue.map((t, i) => (
+              <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden group">
+                <div className="absolute left-0 top-0 h-full w-1 bg-slate-900 opacity-20"></div>
+                <div className="flex-1 space-y-2">
+                  <span className="text-[7px] px-2 py-0.5 rounded font-black uppercase tracking-widest bg-indigo-50 text-indigo-600">{t.status}</span>
+                  <h4 className="font-black text-slate-900 text-[14px] leading-tight italic uppercase">"{t.details}"</h4>
+                  <p className="text-[7px] text-slate-400 font-bold uppercase italic">{t.location} • {t.assetTag}</p>
+                </div>
+                <div className="flex items-center gap-4 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-50">
+                  <div className="text-left"><p className="text-[11px] text-slate-900 font-black uppercase leading-none">{t.assignedTo}</p></div>
+                  <div className="flex gap-1.5">
+                    <button disabled={submittingRows.has(t.rowIndex)} onClick={() => handleStatusUpdate(t, 'Resolved (Admin)')} className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all shadow-sm"><i className="fas fa-check-circle text-xs"></i></button>
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <div className="h-full flex flex-col items-center justify-center opacity-10">
+                <i className="fas fa-satellite-dish text-6xl mb-4"></i>
+                <p className="text-[10px] font-black uppercase tracking-widest italic">Scanning for Active Data...</p>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setIsModalOpen(true)} className="bg-slate-950 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[9px] shadow-xl flex items-center gap-3 italic">
-             <span>Raise Issue</span>
-             <i className="fas fa-plus-circle text-indigo-400"></i>
-          </button>
+
+        {/* AUDIT LEDGER */}
+        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col min-h-[420px] overflow-hidden">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20">
+            <div className="flex items-center gap-3">
+               <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+               <h3 className="font-black text-slate-900 uppercase text-[10px] tracking-widest">Audit Ledger</h3>
+            </div>
+            <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase italic">{auditQueue.length} Pending Review</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 space-y-3 hide-scroll">
+            {auditQueue.length > 0 ? auditQueue.map((t, i) => (
+              <div key={i} className="bg-slate-50/50 p-5 rounded-2xl border border-emerald-100/50 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden group">
+                <div className="absolute left-0 top-0 h-full w-1 bg-emerald-500 opacity-20"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[7px] px-2 py-0.5 rounded font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 italic">Resolved</span>
+                    <span className="text-[7px] text-slate-300 font-bold uppercase italic">{t.workType}</span>
+                  </div>
+                  <h4 className="font-black text-slate-900 text-[14px] leading-tight italic uppercase">"{t.details}"</h4>
+                  <p className="text-[7px] text-slate-400 font-bold uppercase italic">{t.location} • {t.assetTag}</p>
+                </div>
+                <button 
+                  onClick={() => setReviewTicket(t)}
+                  className="bg-white border border-emerald-200 text-emerald-600 px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest italic shadow-sm hover:bg-emerald-600 hover:text-white transition-all active:scale-95"
+                >
+                  Rate Registry
+                </button>
+              </div>
+            )) : (
+              <div className="h-full flex flex-col items-center justify-center opacity-10">
+                <i className="fas fa-check-double text-6xl mb-4"></i>
+                <p className="text-[10px] font-black uppercase tracking-widest italic">All Records Finalized</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {category === 'ac' && distributionStats && (
-        <section className="bg-white p-6 md:p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
-           <div className="flex justify-between items-center">
-              <div>
-                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-900 italic">Asset Assignment Controller</h3>
-                 <p className="text-[8px] font-bold text-slate-400 uppercase mt-1 italic">Status: {distributionStats.imbalance > 1 ? '⚠️ Load Imbalance Detected' : '✅ Balanced (±1 Rule)'}</p>
-              </div>
-              <button 
-                onClick={handleRebalance}
-                disabled={isRebalancing}
-                className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest italic shadow-lg active:scale-95 transition-all disabled:opacity-30"
-              >
-                {isRebalancing ? 'Syncing...' : 'Auto-Balance Load'}
-              </button>
-           </div>
-           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {techList.map(name => (
-                <div key={name} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center">
-                   <p className="text-[8px] font-black text-slate-400 uppercase mb-1">{name}</p>
-                   <p className="text-2xl font-black text-slate-900 italic">{distributionStats.counts[name]}</p>
-                   <span className="text-[7px] font-bold text-slate-300 uppercase mt-1">ACs Assigned</span>
+      {/* ADMIN REVIEW MODAL */}
+      {reviewTicket && (
+        <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
+          <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 shadow-3xl border border-white/5 relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/5 blur-[100px] pointer-events-none"></div>
+             
+             <div className="flex justify-between items-center mb-8 relative z-10">
+                <div>
+                   <h3 className="text-3xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">Record Audit</h3>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase mt-4 tracking-widest italic">Protocol Verification & Excellence Rating</p>
                 </div>
-              ))}
-           </div>
-        </section>
+                <button onClick={() => { setReviewTicket(null); setSelectedStars(0); setReviewReason(''); }} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 active:scale-90 transition-all flex items-center justify-center border border-slate-100 shadow-inner">
+                   <i className="fas fa-times text-xl"></i>
+                </button>
+             </div>
+
+             <div className="space-y-8 relative z-10">
+                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic mb-2">Technical Summary</p>
+                   <h4 className="text-lg font-black text-slate-900 italic uppercase">"{reviewTicket.details}"</h4>
+                   <div className="flex flex-wrap gap-4 mt-4">
+                      <div><p className="text-[7px] font-bold text-slate-300 uppercase italic">Technician</p><p className="text-[11px] font-black text-indigo-600 uppercase">{(reviewTicket.resolvedBy || reviewTicket.assignedTo).split('•')[0]}</p></div>
+                      <div><p className="text-[7px] font-bold text-slate-300 uppercase italic">Asset</p><p className="text-[11px] font-black text-slate-950 uppercase">{reviewTicket.assetTag}</p></div>
+                   </div>
+                </div>
+
+                <div className="text-center space-y-4">
+                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.4em] italic">Assign Quality Score</p>
+                   <div className="flex justify-center items-center gap-4">
+                      {[1, 2, 3, 4, 5].map(num => {
+                        const config = starConfig.find(c => c.stars === num);
+                        return (
+                          <button 
+                            key={num}
+                            onMouseEnter={() => setHoverStars(num)}
+                            onMouseLeave={() => setHoverStars(0)}
+                            onClick={() => setSelectedStars(num)}
+                            className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl transition-all ${
+                              (hoverStars || selectedStars) >= num 
+                                ? 'text-amber-400 scale-110 shadow-xl bg-white border border-amber-100' 
+                                : 'text-slate-200 bg-slate-50'
+                            }`}
+                          >
+                            <i className="fas fa-star"></i>
+                          </button>
+                        );
+                      })}
+                   </div>
+
+                   {/* HOVER ANALYTICS PREVIEW */}
+                   <div className="h-6 flex items-center justify-center">
+                      {(hoverStars || selectedStars) > 0 && (
+                        <p className="text-[9px] font-black uppercase tracking-widest italic animate-fadeIn">
+                          {(() => {
+                            const config = starConfig.find(c => c.stars === (hoverStars || selectedStars));
+                            return (
+                              <span className={config && config.points < 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                                ⭐ {(hoverStars || selectedStars)} Star → {config?.points && config.points > 0 ? '+' : ''}{config?.points} Point{config?.points === 1 || config?.points === -1 ? '' : 's'} 
+                                {config?.reasonRequired ? ' (Narrative Required)' : ''}
+                              </span>
+                            );
+                          })()}
+                        </p>
+                      )}
+                   </div>
+                </div>
+
+                <div className={`bg-slate-50 p-6 rounded-[2rem] border-2 transition-all ${starConfig.find(c => c.stars === selectedStars)?.reasonRequired ? 'border-indigo-100 shadow-inner' : 'border-transparent'}`}>
+                   <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Audit Narrative</label>
+                   <textarea 
+                      value={reviewReason}
+                      onChange={e => setReviewReason(e.target.value)}
+                      placeholder={starConfig.find(c => c.stars === selectedStars)?.reasonRequired ? "NARRATIVE BRIEF REQUIRED FOR THIS SCORE..." : "OPTIONAL AUDIT BRIEF..."}
+                      className="w-full bg-transparent font-bold text-xs outline-none italic uppercase resize-none leading-relaxed"
+                      rows={3}
+                   />
+                </div>
+
+                {selectedStars > 0 && (
+                  <button 
+                    onClick={handleReviewSubmit}
+                    disabled={isReviewing || (starConfig.find(c => c.stars === selectedStars)?.reasonRequired && !reviewReason.trim())}
+                    className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black uppercase text-[10px] tracking-[0.4em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30 flex items-center justify-center gap-4"
+                  >
+                    {isReviewing ? (
+                      <i className="fas fa-circle-notch animate-spin text-emerald-400"></i>
+                    ) : (
+                      <i className="fas fa-check-double text-emerald-400"></i>
+                    )}
+                    <span>{isReviewing ? 'Transmitting Registry Update...' : 'Finalize Audit Protocol'}</span>
+                  </button>
+                )}
+             </div>
+          </div>
+        </div>
       )}
 
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col min-h-[420px] overflow-hidden">
-        <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/20">
-          <h3 className="font-black text-slate-900 uppercase text-[10px] tracking-widest">Active Pipeline</h3>
-          <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase italic">{liveQueue.length} Active Records</span>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-3 hide-scroll">
-          {liveQueue.map((t, i) => (
-            <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden group">
-              <div className="absolute left-0 top-0 h-full w-1 bg-slate-900 opacity-20"></div>
-              <div className="flex-1 space-y-2">
-                <span className="text-[7px] px-2 py-0.5 rounded font-black uppercase tracking-widest bg-indigo-50 text-indigo-600">{t.status}</span>
-                <h4 className="font-black text-slate-900 text-[14px] leading-tight italic uppercase">"{t.details}"</h4>
-                <p className="text-[7px] text-slate-400 font-bold uppercase italic">{t.location} • {t.assetTag}</p>
-              </div>
-              <div className="flex items-center gap-4 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-50">
-                <div className="text-left"><p className="text-[11px] text-slate-900 font-black uppercase leading-none">{t.assignedTo}</p></div>
-                <div className="flex gap-1.5">
-                  <button disabled={submittingRows.has(t.rowIndex)} onClick={() => handleStatusUpdate(t, 'Resolved (Admin)')} className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all shadow-sm"><i className="fas fa-check-circle text-xs"></i></button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
+      {/* EXISTING MODAL FOR RAISING ISSUES */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/98 z-[500] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
-          <div className="bg-white w-full max-w-2xl rounded-[3rem] p-10 shadow-3xl border border-white/5 relative overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center mb-10 shrink-0">
-               <div>
-                  <h3 className="text-3xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">Dispatch Hub</h3>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase mt-4 tracking-widest italic">Operations Protocol</p>
-               </div>
-               <button onClick={() => setIsModalOpen(false)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 transition-all active:scale-90"><i className="fas fa-times text-xl"></i></button>
-            </div>
+          <div className="bg-white w-full max-w-2xl rounded-[3rem] p-10 shadow-3xl border border-white/5 relative flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-10 shrink-0"><div><h3 className="text-3xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">Command Hub Issue</h3></div><button onClick={() => setIsModalOpen(false)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 hover:text-rose-500 transition-all"><i className="fas fa-times text-xl"></i></button></div>
             <div className="flex-1 overflow-y-auto space-y-6 pr-2 hide-scroll">
-               <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner">
-                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Incident Narrative</label>
-                  <textarea value={faultDesc} onChange={e => setFaultDesc(e.target.value)} rows={3} placeholder="Describe the findings..." className="w-full bg-transparent font-bold text-base outline-none uppercase italic resize-none" />
-               </div>
+               <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner"><label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Identify Asset (Tag/ID)</label><input type="text" value={lookupId} onChange={e => handleLookup(e.target.value)} placeholder="SEARCH REGISTRY..." className="w-full bg-transparent font-black text-2xl outline-none italic uppercase text-slate-950 placeholder:text-slate-200" /></div>
+               {isSearching && <div className="p-4 bg-indigo-50 rounded-2xl flex items-center gap-4 animate-pulse"><i className="fas fa-satellite-dish text-indigo-400"></i><p className="text-[10px] font-black text-indigo-900 uppercase italic">Scanning...</p></div>}
+               {foundAsset && (<div className="bg-emerald-50 p-6 rounded-2xl border-2 border-emerald-100 shadow-inner animate-slideDown"><p className="text-[8px] font-black text-emerald-600 uppercase mb-2">Registry Verified</p><h4 className="text-xl font-black italic text-slate-950 uppercase">"{foundAsset.room}"</h4></div>)}
+               <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner"><label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Narrative</label><textarea value={faultDesc} onChange={e => setFaultDesc(e.target.value)} rows={3} placeholder="Describe anomaly..." className="w-full bg-transparent font-bold text-base outline-none uppercase italic resize-none" /></div>
             </div>
-            <div className="pt-8 shrink-0">
-               {assignmentFeedback ? (
-                  <div className="bg-emerald-500 text-white p-6 rounded-2xl text-center animate-bounce shadow-xl">
-                     <p className="text-xl font-black italic uppercase">Assigned to {assignmentFeedback}</p>
-                  </div>
-               ) : (
-                  <button onClick={handleDispatch} disabled={isSubmitting || !faultDesc.trim()} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.4em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30">
-                     {isSubmitting ? 'Submitting...' : 'Execute Dispatch'}
-                  </button>
-               )}
-            </div>
+            <div className="pt-8 shrink-0">{assignmentFeedback ? (<div className="bg-emerald-500 text-white p-6 rounded-2xl text-center animate-bounce shadow-xl"><p className="text-xl font-black italic uppercase">Assigned to {assignmentFeedback}</p></div>) : (<button onClick={handleDispatch} disabled={isSubmitting || !faultDesc.trim() || (category === 'ac' && !foundAsset)} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.4em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30">{isSubmitting ? 'Submitting...' : 'Execute Dispatch Protocol'}</button>)}</div>
           </div>
         </div>
       )}

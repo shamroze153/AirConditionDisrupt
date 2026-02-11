@@ -2,7 +2,7 @@ import React from 'react';
 
 const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
   return (
-    <div className="h-full w-full bg-[#020617] relative overflow-hidden flex flex-col items-center justify-center text-center">
+    <div className="h-full w-full bg-[#020617] relative overflow-hidden flex flex-col items-center justify-center text-center px-4">
       {/* 3D Background Elements */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden perspective-1000">
         {/* Animated Grid Floor */}
@@ -28,66 +28,75 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
 
         {/* Cinematic Rocket Streak */}
         <div className="absolute top-1/3 left-[-10%] w-[120%] h-[1px] bg-gradient-to-r from-transparent via-indigo-500 to-transparent rotate-[-15deg] opacity-20 animate-streakPass"></div>
-        <div className="absolute bottom-1/4 right-[-10%] w-[120%] h-[1px] bg-gradient-to-r from-transparent via-blue-500 to-transparent rotate-[10deg] opacity-10 animate-streakPassReverse"></div>
       </div>
 
-      <div className="relative z-20 px-6 max-w-5xl w-full flex flex-col items-center">
-        <header className="mb-12 animate-heroReveal">
+      <div className="relative z-20 max-w-4xl w-full flex flex-col items-center">
+        <header className="mb-8 animate-heroReveal">
           {/* Version Tag */}
-          <div className="inline-flex items-center gap-2 bg-indigo-950/50 border border-indigo-500/30 px-3 py-1 rounded-full mb-6 backdrop-blur-md">
+          <div className="inline-flex items-center gap-2 bg-indigo-950/50 border border-indigo-500/30 px-4 py-1.5 rounded-full mb-8 backdrop-blur-md">
             <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse shadow-[0_0_8px_#818cf8]"></span>
-            <p className="text-[7px] font-black text-indigo-300 uppercase tracking-[0.4em] italic">Enterprise Protocol v9.0</p>
+            <p className="text-[8px] font-black text-indigo-300 uppercase tracking-[0.4em] italic">Enterprise Protocol v9.0</p>
           </div>
 
-          {/* 3D-ish Logo with Chrome Shimmer */}
-          <div className="relative group px-4">
-            <h1 className="text-7xl md:text-9xl font-black text-white leading-none tracking-tighter mb-2 italic transition-transform duration-700 group-hover:scale-[1.02] cursor-default drop-shadow-[0_20px_50px_rgba(79,70,229,0.3)]">
+          {/* Logo Section */}
+          <div className="relative group mb-6">
+            <h1 className="text-7xl md:text-9xl font-black text-white leading-none tracking-tighter mb-2 italic drop-shadow-[0_20px_50px_rgba(79,70,229,0.3)]">
               DISRUPT
             </h1>
-            <h2 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-blue-500 tracking-[0.2em] italic uppercase leading-none mt-2 opacity-90">
+            <h2 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-blue-500 tracking-[0.2em] italic uppercase leading-none mt-2">
               WORKPLACE
             </h2>
           </div>
           
-          <div className="max-w-md mx-auto relative mt-8">
+          <div className="max-w-md mx-auto relative mb-12">
             <div className="h-[1px] w-12 bg-indigo-500/50 mx-auto mb-6"></div>
-            <p className="text-[10px] md:text-xs font-bold text-slate-400 leading-relaxed tracking-[0.2em] uppercase italic px-4 opacity-80">
+            <p className="text-[10px] md:text-xs font-bold text-slate-400 leading-relaxed tracking-[0.2em] uppercase italic px-4">
               Operations Control <span className="text-white">&</span> Logistics Optimization
             </p>
           </div>
         </header>
 
-        {/* Action Button */}
-        <div className="w-full max-w-[260px] animate-btnFadeIn" style={{ animationDelay: '0.6s' }}>
+        {/* Action Button - Moved above quote */}
+        <div className="w-full max-w-[280px] mb-16 animate-btnFadeIn" style={{ animationDelay: '0.4s' }}>
           <button 
             onClick={onProceed} 
-            className="w-full group relative h-16 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-black text-[10px] transition-all duration-500 border border-white/10 overflow-hidden shadow-2xl active:scale-95"
+            className="w-full group relative h-20 bg-white/5 hover:bg-white/10 text-white rounded-[2rem] font-black text-[11px] transition-all duration-500 border border-white/10 overflow-hidden shadow-2xl active:scale-95"
           >
-            {/* Background Glow on Hover */}
             <div className="absolute inset-0 bg-indigo-600 opacity-0 group-hover:opacity-10 transition-opacity duration-500"></div>
             
-            <div className="relative z-10 flex items-center justify-between px-8 h-full">
-              <span className="tracking-[0.4em] uppercase italic">INITIALIZE HUB</span>
-              <div className="w-10 h-10 bg-white text-slate-950 rounded-xl flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white group-hover:rotate-[360deg] transition-all duration-700 shadow-xl">
-                <i className="fas fa-arrow-right text-[10px]"></i>
+            <div className="relative z-10 flex items-center justify-between px-10 h-full">
+              <span className="tracking-[0.4em] uppercase italic">ENTER PORTAL</span>
+              <div className="w-12 h-12 bg-white text-slate-950 rounded-2xl flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white group-hover:rotate-[360deg] transition-all duration-700 shadow-xl">
+                <i className="fas fa-chevron-right text-xs"></i>
               </div>
             </div>
 
-            {/* Shimmer Effect */}
             <div className="absolute top-0 -left-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-[-25deg] group-hover:animate-shimmer"></div>
           </button>
         </div>
-      </div>
 
-      {/* Footer System Info */}
-      <div className="absolute bottom-10 left-0 w-full flex justify-between px-10 pointer-events-none opacity-20 animate-fadeIn">
-        <div className="text-[6px] font-black text-white uppercase tracking-widest italic flex flex-col gap-1">
-          <span>LATENCY: 12ms</span>
-          <span>ENCRYPTION: AES-256</span>
-        </div>
-        <div className="text-[6px] font-black text-white uppercase tracking-widest italic flex flex-col items-end gap-1">
-          <span>SYNC_MODE: FULL_DUPLEX</span>
-          <span>CORE_LOAD: 0.2%</span>
+        {/* Philosophy Quote Section - Moved below button */}
+        <div className="max-w-2xl mx-auto animate-fadeIn" style={{ animationDelay: '0.8s' }}>
+          <div className="relative p-8 md:p-10">
+            {/* Subtle corner accents */}
+            <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-indigo-500/20 rounded-tl-2xl"></div>
+            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-indigo-500/20 rounded-br-2xl"></div>
+            
+            <blockquote className="text-slate-300 font-medium text-sm md:text-lg leading-relaxed italic">
+              "Whether it’s a machine, a house, or a relationship,{' '}
+              <span className="relative inline-block text-white font-bold not-italic">
+                maintenance is always cheaper than repairing
+                <span className="absolute -bottom-1 left-0 w-full h-[2px] bg-gradient-to-r from-indigo-500 to-blue-500"></span>
+              </span>
+              . If you don’t maintain, you eventually lose."
+            </blockquote>
+            
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <div className="h-[1px] w-4 bg-indigo-500/30"></div>
+              <p className="text-[7px] font-black text-indigo-400 uppercase tracking-[0.5em]">Facility Philosophy</p>
+              <div className="h-[1px] w-4 bg-indigo-500/30"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -120,17 +129,6 @@ const LandingView: React.FC<{ onProceed: () => void }> = ({ onProceed }) => {
         }
         .animate-streakPass {
           animation: streakPass 8s infinite cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes streakPassReverse {
-          0% { transform: translateX(100%) rotate(10deg); opacity: 0; }
-          15% { opacity: 0.1; }
-          85% { opacity: 0.1; }
-          100% { transform: translateX(-100%) rotate(10deg); opacity: 0; }
-        }
-        .animate-streakPassReverse {
-          animation: streakPassReverse 12s infinite cubic-bezier(0.16, 1, 0.3, 1);
-          animation-delay: 2s;
         }
 
         @keyframes heroReveal {
