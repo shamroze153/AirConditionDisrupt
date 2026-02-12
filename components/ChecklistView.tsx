@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+
+import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types.ts';
-import { CAMPUS_ASSETS, ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY, CATEGORY_TECHS } from '../constants.ts';
-import { postAction, updatePoints, getReport, updateAssetStatus } from '../services/api.ts';
+import { ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY, CATEGORY_TECHS } from '../constants.ts';
+import { postAction, updatePoints, updateAssetStatus } from '../services/api.ts';
 
 interface Props {
   category: CategoryKey;
@@ -16,7 +17,9 @@ interface Props {
 
 const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, stats, onBack, showToast, refreshData }) => {
   const [activeFrequency, setActiveFrequency] = useState<ChecklistType>(ChecklistType.DAILY);
-  const [selectedCampus, setSelectedCampus] = useState<'140H' | '141D' | '141C' | ''>(category === 'ac' ? '140H' : ''); 
+  const [selectedCampus, setSelectedCampus] = useState<'140H' | '141D' | '141C' | ''>(
+    (category === 'ac' || category === 'electrical') ? '140H' : ''
+  ); 
   
   const [currentTask, setCurrentTask] = useState<string | null>(null);
   const [issueDetails, setIssueDetails] = useState('');
@@ -32,21 +35,22 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
 
   const activeTechList = CATEGORY_TECHS[category] || [];
   
-  // Rule: Check if the current user is acting for an absent person
   const isActingTech = useMemo(() => {
     return techName !== activeTechList[zoneIdx];
   }, [techName, activeTechList, zoneIdx]);
 
   const currentTaskItems = useMemo(() => {
-    if (category === 'ac') {
+    const cat = String(category).toLowerCase();
+    
+    if (cat === 'ac') {
       const operationalACs = assets
-        .filter(a => String(a.category).toLowerCase() === 'ac' && ['ACTIVE', 'MAINTENANCE'].includes(String(a.status).trim().toUpperCase()))
+        .filter(a => String(a.category || '').toLowerCase().includes('ac') && ['ACTIVE', 'MAINTENANCE'].includes(String(a.status).trim().toUpperCase()))
         .sort((a, b) => Number(a.id) - Number(b.id));
 
       const originalAssignee = activeTechList[zoneIdx];
       let techAssets = operationalACs.filter(a => a.assignedTech === originalAssignee);
 
-      if (techAssets.length === 0) {
+      if (techAssets.length === 0 && operationalACs.length > 0) {
         const numZones = 4;
         const baseSize = Math.floor(operationalACs.length / numZones);
         const remainder = operationalACs.length % numZones;
@@ -66,7 +70,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         status: a.status,
         exactLocation: `${a.campus} - ${a.floor} - ${a.room}`
       }));
-    } else if (category === 'electrical') {
+    } else if (cat === 'electrical') {
       if (!selectedCampus) return [];
       const items: any[] = [];
       const commonTasks = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === activeFrequency);
@@ -114,7 +118,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
       if (currentTaskItems.length === 0) return 100;
       const list = [...listRaw.map(t => String(t || '').trim().toUpperCase()), ...Array.from(locallyDoneTags)];
       const count = currentTaskItems.filter(item => list.includes(String(item.tag || '').toUpperCase())).length;
-      return count >= currentTaskItems.length ? 100 : Math.round((count / currentTaskItems.length) * 100);
+      return Math.round((count / currentTaskItems.length) * 100);
     };
     return {
       daily: calc(stats?.hvac?.daily || []),
@@ -124,7 +128,8 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
   }, [currentTaskItems, stats, locallyDoneTags]);
 
   const slaAlert = useMemo(() => {
-    const pct = completionStats[activeFrequency.toLowerCase() as 'daily' | 'monthly' | 'quarterly'];
+    const freqKey = activeFrequency.toLowerCase() as 'daily' | 'monthly' | 'quarterly';
+    const pct = completionStats[freqKey];
     if (pct < 100) {
       return {
         message: `SLA BREACH RISK: ${100 - pct}% of tasks pending. Incomplete cycles result in -10 Point Penalty.`,
@@ -168,22 +173,40 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
     fd.append('status', status); 
     fd.append('remarks', remarks);
     await postAction(fd);
-    if (status === "OK") await updatePoints(category, techName, 1, `${category.toUpperCase()} ${activeFrequency} Verification`);
+    
+    if (status === "OK") {
+      await updatePoints(category, techName, 1, `${category.toUpperCase()} ${activeFrequency} Verification`);
+    }
+    
     if (status === "Issue") {
       const taskItem = currentTaskItems.find(it => it.tag === itemTag);
       const wofd = new FormData();
       wofd.append('action', 'complain');
       wofd.append('category', category.toUpperCase());
       wofd.append('complaintType', 'Proactive');
-      wofd.append('location', taskItem?.exactLocation || selectedCampus);
+      wofd.append('location', taskItem?.exactLocation || selectedCampus || 'Field');
       wofd.append('assetTag', itemTag.toUpperCase());
       wofd.append('details', `[CHECKLIST ALERT] ${remarks}`);
       wofd.append('assignedTech', techName); 
       wofd.append('status', 'Open');
       await postAction(wofd);
+
+      // MANDATORY: Move AC asset to Maintenance mode when fault is flagged via Checklist
+      if (category === 'ac' && itemTag) {
+        await updateAssetStatus(category, itemTag, 'Maintenance');
+      }
     }
     refreshData();
   };
+
+  const groupedTasks = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    currentTaskItems.forEach(item => {
+      if (!groups[item.group]) groups[item.group] = [];
+      groups[item.group].push(item);
+    });
+    return groups;
+  }, [currentTaskItems]);
 
   return (
     <div className="h-full w-full bg-slate-50 flex flex-col pb-20 overflow-hidden">
@@ -199,7 +222,7 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
         </div>
 
         <div className="flex justify-between items-center mb-5">
-          <button onClick={onBack} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 active:scale-90 shadow-inner">
+          <button onClick={onBack} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 active:scale-90 shadow-inner hover:text-indigo-600 transition-colors">
             <i className="fas fa-arrow-left"></i>
           </button>
           <div className="text-right">
@@ -215,34 +238,27 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
 
         <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl shadow-inner overflow-x-auto hide-scroll">
           {[ChecklistType.DAILY, ChecklistType.MONTHLY, ChecklistType.QUARTERLY].map(freq => (
-            <button key={freq} onClick={() => setActiveFrequency(freq)} className={`flex-1 min-w-[70px] py-2 rounded-lg text-[8px] font-black uppercase transition-all tracking-widest italic ${activeFrequency === freq ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>{freq}</button>
+            <button key={freq} onClick={() => setActiveFrequency(freq)} className={`flex-1 min-w-[70px] py-2 rounded-lg text-[8px] font-black uppercase transition-all tracking-widest italic ${activeFrequency === freq ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>{freq}</button>
           ))}
         </div>
 
-        {category !== 'ac' && (
+        {(category === 'electrical' || category === 'ac') && (
           <div className="flex gap-2 mb-4 bg-slate-50 p-1 rounded-xl shadow-inner overflow-x-auto hide-scroll border border-slate-100">
             {['140H', '141D', '141C'].map(campus => (
-              <button key={campus} onClick={() => setSelectedCampus(campus as any)} className={`flex-1 min-w-[80px] px-2 py-2 rounded-lg text-[7px] font-black uppercase transition-all tracking-widest italic ${selectedCampus === campus ? 'bg-slate-950 text-white shadow-lg' : 'text-slate-400 hover:bg-white'}`}>Campus {campus}</button>
+              <button key={campus} onClick={() => setSelectedCampus(campus as any)} className={`flex-1 min-w-[80px] px-2 py-2 rounded-lg text-[7px] font-black uppercase transition-all tracking-widest italic ${selectedCampus === campus ? 'bg-slate-950 text-white shadow-lg' : 'text-slate-400 hover:bg-white hover:text-slate-900'}`}>Campus {campus}</button>
             ))}
           </div>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-8 hide-scroll">
-        {category !== 'ac' && !selectedCampus ? (
+        {!selectedCampus && (category === 'ac' || category === 'electrical') ? (
           <div className="py-24 text-center opacity-10 flex flex-col items-center">
             <i className="fas fa-building text-7xl mb-6"></i>
             <p className="text-xs font-black uppercase tracking-[0.5em]">Select Building Segment</p>
           </div>
-        ) : (
-          Object.entries(useMemo(() => {
-            const groups: Record<string, any[]> = {};
-            currentTaskItems.forEach(item => {
-              if (!groups[item.group]) groups[item.group] = [];
-              groups[item.group].push(item);
-            });
-            return groups;
-          }, [currentTaskItems])).map(([group, tasks]) => (
+        ) : Object.keys(groupedTasks).length > 0 ? (
+          Object.entries(groupedTasks).map(([group, tasks]) => (
             <div key={group} className="space-y-3">
                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-2">{group}</h4>
                {(tasks as any[]).map((item, i) => {
@@ -261,11 +277,11 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                        </div>
                        <div className="flex items-center gap-2">
                          {isDone ? (
-                           <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg"><i className="fas fa-check text-xs"></i></div>
+                           <div className="bg-emerald-600 text-white w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg animate-fadeIn"><i className="fas fa-check text-xs"></i></div>
                          ) : (
                            <div className="flex gap-2">
-                             <button onClick={() => handleAction(item.tag, 'OK')} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all shadow-md">Done</button>
-                             <button onClick={() => handleAction(item.tag, 'Issue')} className="bg-rose-50 text-rose-600 px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all">Fault</button>
+                             <button onClick={() => handleAction(item.tag, 'OK')} disabled={isSyncing} className="bg-slate-900 text-white px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all shadow-md disabled:opacity-30">Done</button>
+                             <button onClick={() => handleAction(item.tag, 'Issue')} disabled={isSyncing} className="bg-rose-50 text-rose-600 px-5 py-3 rounded-xl text-[9px] font-black uppercase italic active:scale-95 transition-all disabled:opacity-30">Fault</button>
                            </div>
                          )}
                        </div>
@@ -275,6 +291,12 @@ const ChecklistView: React.FC<Props> = ({ category, zoneIdx, techName, assets, s
                })}
             </div>
           ))
+        ) : (
+          <div className="py-24 text-center opacity-10 flex flex-col items-center">
+            <i className="fas fa-clipboard-list text-7xl mb-6"></i>
+            <p className="text-xs font-black uppercase tracking-[0.5em]">No Tasks Defined for this Registry</p>
+            <p className="text-[8px] font-bold uppercase mt-2 italic">Please contact HUB administrator for registry mapping</p>
+          </div>
         )}
       </div>
 

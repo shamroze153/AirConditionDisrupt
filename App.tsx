@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Asset, Ticket, AppTab, StatsResponse, FMCategory, CategoryKey, GlobalStatsResponse } from './types.ts';
+import { Asset, Ticket, AppTab, StatsResponse, FMCategory, GlobalStatsResponse } from './types.ts';
 import { fetchAssets, fetchStats, fetchGlobalStats } from './services/api.ts';
 import { FM_CATEGORIES, TECHNICIANS, ELECTRICAL_TECHNICIANS } from './constants.ts';
 import LandingView from './components/LandingView.tsx';
@@ -17,57 +18,32 @@ const App: React.FC = () => {
   const [currentCategory, setCurrentCategory] = useState<FMCategory>(FM_CATEGORIES[0]);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
 
-  // CACHE HYDRATION with lazy initial state
-  const [assets, setAssets] = useState<Asset[]>(() => {
-    try {
-      const cached = localStorage.getItem('fm_cache_assets');
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
-  });
-  const [tickets, setTickets] = useState<Ticket[]>(() => {
-    try {
-      const cached = localStorage.getItem('fm_cache_tickets');
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
-  });
-  const [stats, setStats] = useState<StatsResponse | null>(() => {
-    try {
-      const cached = localStorage.getItem('fm_cache_stats');
-      return cached ? JSON.parse(cached) : null;
-    } catch { return null; }
-  });
-  const [globalStats, setGlobalStats] = useState<GlobalStatsResponse | null>(() => {
-    try {
-      const cached = localStorage.getItem('fm_cache_global_stats');
-      return cached ? JSON.parse(cached) : null;
-    } catch { return null; }
-  });
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [globalStats, setGlobalStats] = useState<GlobalStatsResponse | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [connError, setConnError] = useState<boolean>(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
-  const [newTicketPulse, setNewTicketPulse] = useState(false);
 
   const [acAttendance, setAcAttendance] = useState<Record<string, boolean>>(() => {
-    const stored = localStorage.getItem('fm_ac_attendance');
     const initial: Record<string, boolean> = {};
     TECHNICIANS.forEach(t => initial[t] = true);
-    return stored ? JSON.parse(stored) : initial;
+    return initial;
   });
 
   const [elecAttendance, setElecAttendance] = useState<Record<string, boolean>>(() => {
-    const stored = localStorage.getItem('fm_elec_attendance');
     const initial: Record<string, boolean> = {};
     ELECTRICAL_TECHNICIANS.forEach(t => initial[t] = true);
-    return stored ? JSON.parse(stored) : initial;
+    return initial;
   });
 
-  const attendance = currentCategory.id === 'electrical' ? elecAttendance : acAttendance;
-  const prevTicketCount = useRef<number>(tickets.length);
-  const beepAudio = useRef<HTMLAudioElement | null>(null);
+  const attendance = currentCategory?.id === 'electrical' ? elecAttendance : acAttendance;
+  
   const lastFetchTime = useRef<number>(0);
-
+  const isFirstLoadRef = useRef(true);
   const [activeZone, setActiveZone] = useState<number>(0);
   const [activeTech, setActiveTech] = useState<string>('');
 
@@ -76,28 +52,19 @@ const App: React.FC = () => {
     setTimeout(() => setToastMsg(null), 3000);
   }, []);
 
-  useEffect(() => {
-    beepAudio.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-  }, []);
-
   const refreshData = useCallback(async (isSilent = false) => {
-    // Throttling: prevent redundant heavy fetches if called too fast (within 2s)
     if (!isSilent && Date.now() - lastFetchTime.current < 2000) return;
-    
-    // Efficiency: skip fetch if tab is hidden to save battery/data
     if (document.visibilityState === 'hidden' && isSilent) return;
 
     try {
-      const hasInitialData = screen === 'landing' || screen === 'category-hub' ? !!globalStats : (!!assets.length && !!stats);
-      if (!isSilent && !hasInitialData) setIsLoading(true);
-
+      if (!isSilent && isFirstLoadRef.current) setIsLoading(true);
       lastFetchTime.current = Date.now();
 
       if (screen === 'landing' || screen === 'category-hub' || screen === 'global-dashboard' || currentCategory.id === 'seating') {
         const globalData = await fetchGlobalStats();
-        if (globalData) {
+        if (globalData && typeof globalData === 'object') {
           setGlobalStats(globalData);
-          localStorage.setItem('fm_cache_global_stats', JSON.stringify(globalData));
+          isFirstLoadRef.current = false;
         }
       } else {
         const [assetList, statData] = await Promise.all([
@@ -105,82 +72,35 @@ const App: React.FC = () => {
           fetchStats(currentCategory.id)
         ]);
         
-        const seenTags = new Set<string>();
-        const sanitizedAssets = (assetList || []).filter(a => {
-          const tag = String(a.tag || '').trim().toUpperCase();
-          const room = String(a.room || '').trim();
-          if (!tag || tag === 'N/A' || !room || seenTags.has(tag)) return false;
-          seenTags.add(tag);
-          return true;
-        });
-
-        const rawTickets = statData.complaints || [];
-        let processedAssets = [...sanitizedAssets];
-
-        if (currentCategory.id === 'ac') {
-          const maintenanceTags = new Set(
-            rawTickets
-              .filter(t => !['resolved', 'completed'].some(s => String(t.status || '').toLowerCase().includes(s)))
-              .map(t => String(t.assetTag).trim().toUpperCase())
-          );
-
-          processedAssets = processedAssets.map(a => {
-            if (!['Active', 'Maintenance'].includes(a.status)) return a;
-            const isMaint = maintenanceTags.has(String(a.tag).trim().toUpperCase());
-            return { ...a, status: isMaint ? 'Maintenance' : 'Active' };
-          });
+        if (assetList) setAssets(assetList);
+        if (statData && typeof statData === 'object') {
+          setTickets(statData.complaints || []);
+          setStats(statData);
         }
-
-        if (rawTickets.length > prevTicketCount.current && prevTicketCount.current > 0) {
-          if (audioEnabled) { beepAudio.current?.play().catch(() => {}); }
-          showToast("New Ticket Logged");
-          setNewTicketPulse(true);
-          setTimeout(() => setNewTicketPulse(false), 5000);
-        }
-        prevTicketCount.current = rawTickets.length;
-
-        setAssets(processedAssets);
-        setTickets(rawTickets);
-        setStats(statData);
-
-        // Batch localStorage updates
-        localStorage.setItem('fm_cache_assets', JSON.stringify(processedAssets));
-        localStorage.setItem('fm_cache_tickets', JSON.stringify(rawTickets));
-        localStorage.setItem('fm_cache_stats', JSON.stringify(statData));
+        isFirstLoadRef.current = false;
       }
       setConnError(false);
     } catch (error) {
       setConnError(true);
-      if (!isSilent) showToast("Connection Error");
     } finally {
       setIsLoading(false);
     }
-  }, [audioEnabled, currentCategory, screen, assets.length, stats, globalStats, showToast]);
+  }, [currentCategory.id, screen]);
 
   useEffect(() => {
     refreshData(true);
-    // Increase poll interval to 30s to "load less" while maintaining awareness
     const interval = setInterval(() => refreshData(true), 30000); 
     return () => clearInterval(interval);
-  }, [screen, refreshData, currentCategory.id]);
+  }, [refreshData]);
 
   const toggleAttendance = (tech: string) => {
     const isElec = currentCategory.id === 'electrical';
-    const next = isElec 
-      ? { ...elecAttendance, [tech]: !elecAttendance[tech] }
-      : { ...acAttendance, [tech]: !acAttendance[tech] };
-    
-    if (isElec) {
-      setElecAttendance(next);
-      localStorage.setItem('fm_elec_attendance', JSON.stringify(next));
-    } else {
-      setAcAttendance(next);
-      localStorage.setItem('fm_ac_attendance', JSON.stringify(next));
-    }
+    if (isElec) setElecAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
+    else setAcAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
   };
 
   const handleStartApp = () => { setAudioEnabled(true); setScreen('category-hub'); };
-  const handleSelectCategory = (category: FMCategory) => { setCurrentCategory(category); setActiveTab(AppTab.DASHBOARD); setScreen('app'); };
+  const handleSelectCategory = (category: FMCategory) => { setCurrentCategory(category); setActiveTab(AppTab.DASHBOARD); setScreen('app'); isFirstLoadRef.current = true; };
   const handleOpenChecklist = (zoneIdx: number, tech: string) => { setActiveZone(zoneIdx); setActiveTech(tech); setScreen('checklist'); };
 
   return (
@@ -194,20 +114,13 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {connError && (
-        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] bg-rose-50 px-4 py-1.5 rounded-full shadow-lg border border-rose-100 flex items-center gap-2 animate-fadeIn">
-           <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>
-           <span className="text-[7px] font-black text-rose-500 uppercase tracking-widest">Link Interrupted</span>
-        </div>
-      )}
-
       {screen === 'landing' && <LandingView onProceed={handleStartApp} />}
       
       {screen === 'category-hub' && (
         <CategoryHubView 
           onBack={() => setScreen('landing')} 
           onSelectCategory={handleSelectCategory} 
-          onOpenGlobal={() => setScreen('global-dashboard')}
+          onOpenGlobal={() => { setScreen('global-dashboard'); isFirstLoadRef.current = true; }}
           tickets={globalStats?.allTickets || []}
           acAttendance={acAttendance}
           elecAttendance={elecAttendance}
@@ -302,7 +215,7 @@ const App: React.FC = () => {
 
       {screen === 'global-dashboard' && (
         <div className="h-full flex flex-col animate-fadeIn">
-          <Header title="Global Ops Dashboard" onBack={() => setScreen('category-hub')} color="slate" />
+          <Header title="Hard FM Ops Data Disrupt" onBack={() => setScreen('category-hub')} color="slate" />
           <div className="flex-1 overflow-y-auto hide-scroll pb-10">
             <GlobalDashboardView stats={globalStats} onRefresh={() => refreshData(false)} showToast={showToast} />
           </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Asset, Ticket, StatsResponse, CategoryKey, Tool, MaterialDemand } from '../types.ts';
 import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES } from '../constants.ts';
@@ -16,7 +17,7 @@ interface Props {
 }
 
 const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tickets, assets, onOpenChecklist, showToast, onRefresh, stats }) => {
-  const [view, setView] = useState<'profiles' | 'hub' | 'demands' | 'tools'>('profiles');
+  const [view, setView] = useState<'profiles' | 'hub' | 'raise-issue' | 'demands' | 'tools'>('profiles');
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
   const [multiSelectedTechs, setMultiSelectedTechs] = useState<string[]>([]);
   const [isSyncingSLA, setIsSyncingSLA] = useState(false);
@@ -47,15 +48,11 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     });
   }, [assets, category]);
 
-  // 3️⃣ CONNECTION VERIFICATION (NON-OPTIONAL)
   const isRegistryEmpty = category === 'ac' && masterACAssets.length === 0;
-
-  // Normalization Helpers (Strictly enforced)
   const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  // Unified Raise Issue Modal (Tech Era Flow)
-  const [showRaiseIssueModal, setShowRaiseIssueModal] = useState(false);
-  const [issueStep, setIssueStep] = useState(1); // 1: Campus, 2: Floor, 3: AC Selection, 4: Narrative
+  // 2️⃣ RAISE ISSUE STATE (Integrated into Tab)
+  const [issueStep, setIssueStep] = useState(1); 
   const [issueData, setIssueData] = useState({
     campus: '',
     floor: '',
@@ -63,31 +60,15 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     details: '',
     complaintType: 'Proactive' as 'Proactive' | 'Reactive'
   });
-  
   const [isSubmittingIssue, setIsSubmittingIssue] = useState(false);
 
-  // 7️⃣ SUPPLIES & TOOLS STATE
-  const [demandTech, setDemandTech] = useState<string>(activeTechList[0] || '');
-  const [demandDetails, setDemandDetails] = useState('');
-  const [isSubmittingDemand, setIsSubmittingDemand] = useState(false);
-  
-  const [serverTools, setServerTools] = useState<Tool[]>([]);
-  const [isLoadingTools, setIsLoadingTools] = useState(false);
-  const [isToolAdminUnlocked, setIsToolAdminUnlocked] = useState(false);
-  const [showToolModal, setShowToolModal] = useState(false);
-  const [editingTool, setEditingTool] = useState<Tool | null>(null);
-  const [toolFormData, setToolFormData] = useState<Tool>({ category: category.toUpperCase(), name: '', qty: 0, technician: '' });
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-
-  // 4️⃣ CAMPUS DROPDOWN (DATA-DRIVEN ONLY)
+  // Dynamic dropdowns for Raise Issue flow
   const dynamicCampuses = useMemo(() => {
     const set = new Set<string>();
     masterACAssets.forEach(a => { if (a.campus) set.add(String(a.campus).trim()); });
     return Array.from(set).sort();
   }, [masterACAssets]);
 
-  // 5️⃣ FLOOR DROPDOWN (CASCADE FILTER)
   const dynamicFloors = useMemo(() => {
     if (!issueData.campus) return [];
     const target = norm(issueData.campus);
@@ -98,18 +79,25 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     return Array.from(set).sort();
   }, [masterACAssets, issueData.campus]);
 
-  // 6️⃣ AC LIST RENDERING (FINAL FILTER)
   const filteredAssetsForIssue = useMemo(() => {
     if (!issueData.campus || !issueData.floor) return [];
     const cTarget = norm(issueData.campus);
     const fTarget = norm(issueData.floor);
-    
-    return masterACAssets.filter(a => {
-      const isLocMatch = norm(a.campus) === cTarget && norm(a.floor) === fTarget;
-      const isActive = String(a.status || '').toUpperCase() === 'ACTIVE';
-      return isLocMatch && isActive;
-    });
+    return masterACAssets.filter(a => norm(a.campus) === cTarget && norm(a.floor) === fTarget && String(a.status || '').toUpperCase() === 'ACTIVE');
   }, [masterACAssets, issueData.campus, issueData.floor]);
+
+  // 3️⃣ SUPPLIES & TOOLS STATE
+  const [demandTech, setDemandTech] = useState<string>(activeTechList[0] || '');
+  const [demandDetails, setDemandDetails] = useState('');
+  const [isSubmittingDemand, setIsSubmittingDemand] = useState(false);
+  const [serverTools, setServerTools] = useState<Tool[]>([]);
+  const [isLoadingTools, setIsLoadingTools] = useState(false);
+  const [isToolAdminUnlocked, setIsToolAdminUnlocked] = useState(false);
+  const [showToolModal, setShowToolModal] = useState(false);
+  const [editingTool, setEditingTool] = useState<Tool | null>(null);
+  const [toolFormData, setToolFormData] = useState<Tool>({ category: category.toUpperCase(), name: '', qty: 0, technician: '' });
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
 
   const loadTools = async () => {
     setIsLoadingTools(true);
@@ -130,11 +118,8 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
   const handleApplyTool = async () => {
     if (!toolFormData.name || !isToolAdminUnlocked) return;
     try {
-      if (editingTool) {
-        await updateTool(category, editingTool.name, toolFormData);
-      } else {
-        await addTool(category, toolFormData);
-      }
+      if (editingTool) await updateTool(category, editingTool.name, toolFormData);
+      else await addTool(category, toolFormData);
       showToast("Tool Registry Synchronized");
       setShowToolModal(false);
       loadTools();
@@ -228,21 +213,10 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     setIsResolving(true);
     const solversStr = solvingTechs.join(' & ');
     const now = new Date();
-    
     try {
-      // 🔄 RESTORED: Optional Gas Transaction Logging
       if (category === 'ac' && gasUsedYesNo === 'Yes' && Number(gasAmount) > 0) {
-        await logGasTransaction({
-          timestamp: now.toLocaleString(),
-          action: 'USAGE',
-          gasType: selectedGasType,
-          amount: Number(gasAmount),
-          tech: solversStr,
-          refTicket: `WO-${resolveTicket.rowIndex}`,
-          category: 'AC'
-        });
+        await logGasTransaction({ timestamp: now.toLocaleString(), action: 'USAGE', gasType: selectedGasType, amount: Number(gasAmount), tech: solversStr, refTicket: `WO-${resolveTicket.rowIndex}`, category: 'AC' });
       }
-
       const fd = new FormData();
       fd.append('action', 'resolve_ticket');
       fd.append('category', category.toUpperCase());
@@ -255,11 +229,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
       fd.append('gasUsed', String(gasUsedYesNo === 'Yes' ? gasAmount : 0));
       fd.append('gasType', gasUsedYesNo === 'Yes' ? selectedGasType : '');
       await postAction(fd);
-      
-      if (resolveTicket.assetTag && resolveTicket.assetTag !== 'N/A') {
-        await updateAssetStatus(category, resolveTicket.assetTag, 'Active');
-      }
-
+      if (resolveTicket.assetTag && resolveTicket.assetTag !== 'N/A') await updateAssetStatus(category, resolveTicket.assetTag, 'Active');
       onRefresh(); 
       setResolveTicket(null);
       setSolvingTechs([]);
@@ -278,11 +248,9 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
       fd.append('action', 'complain');
       fd.append('category', category.toUpperCase());
       fd.append('complaintType', issueData.complaintType);
-      
       let finalLocation = `${issueData.campus} - ${issueData.floor}`;
       const asset = assets.find(a => a.tag === issueData.assetTag);
       if (asset) finalLocation += ` - ${asset.room}`;
-      
       const activeTechs = activeTechList.filter(t => attendance[t]);
       let assigned = 'Unassigned';
       if (activeTechs.length > 0) {
@@ -291,24 +259,18 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
         tickets.forEach(t => { if (activeTechs.includes(t.assignedTo) && !['Resolved', 'Completed'].some(s => t.status.includes(s))) load[t.assignedTo]++; });
         assigned = activeTechs.sort((a,b) => load[a] - load[b])[0];
       }
-
       fd.append('location', finalLocation);
       fd.append('assetTag', issueData.assetTag || 'N/A');
       fd.append('details', issueData.details);
       fd.append('assignedTech', assigned);
       fd.append('status', assigned === 'Unassigned' ? 'Pending Assignment' : 'Open');
-
       await postAction(fd);
-
-      if (issueData.assetTag && issueData.assetTag !== 'N/A') {
-        await updateAssetStatus(category, issueData.assetTag, 'Maintenance');
-      }
-
+      if (issueData.assetTag && issueData.assetTag !== 'N/A') await updateAssetStatus(category, issueData.assetTag, 'Maintenance');
       showToast("Issue Dispatched to Pipeline");
-      setShowRaiseIssueModal(false);
       setIssueStep(1);
       setIssueData({ campus: '', floor: '', assetTag: '', details: '', complaintType: 'Proactive' });
       onRefresh();
+      setView('profiles'); 
     } catch (e) { showToast("Transmission Error"); } finally { setIsSubmittingIssue(false); }
   };
 
@@ -336,28 +298,23 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     if (!selectedTech) return null;
     const todayTags = (stats?.hvac?.daily || []).map(t => String(t).toUpperCase());
     let dailyMisses: string[] = [];
-    let slaPenaltyPoints = 0;
     let isBreached = false;
-
     if (category === 'ac') {
       const zoneAssets = masterACAssets.filter(a => a.assignedTech === selectedTech);
       dailyMisses = zoneAssets.filter(a => !todayTags.includes(String(a.tag).toUpperCase())).map(a => a.tag);
-      if (dailyMisses.length > 0) {
-        isBreached = true;
-        slaPenaltyPoints = 10;
-      }
+      if (dailyMisses.length > 0) isBreached = true;
     }
-
     const slaLogs = (stats?.performanceLogs || []).filter(l => l.tech === selectedTech && String(l.reason).includes('SLA BREACH') && String(l.category).toUpperCase() === category.toUpperCase());
-    return { dailyMisses, isBreached, pendingPenalty: slaPenaltyPoints, totalBreachEvents: slaLogs.length, totalSlaDeducted: Math.abs(slaLogs.reduce((a, b) => a + (b.points < 0 ? b.points : 0), 0)) };
+    return { dailyMisses, isBreached, pendingPenalty: 10, totalBreachEvents: slaLogs.length, totalSlaDeducted: Math.abs(slaLogs.reduce((a, b) => a + (b.points < 0 ? b.points : 0), 0)) };
   }, [selectedTech, stats, masterACAssets, category]);
 
   return (
     <div className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-6 animate-fadeIn pb-32">
       <div className="flex bg-white p-1.5 rounded-2xl shadow-xl border border-slate-100 gap-1.5 sticky top-4 z-50 glass-panel overflow-x-auto hide-scroll">
         {[
-          { id: 'profiles', label: 'Field Hub', icon: 'id-card' },
-          { id: 'hub', label: category === 'ac' ? 'Sector Hub' : 'Operations Hub', icon: 'map-marked-alt' },
+          { id: 'profiles', label: 'Profiles', icon: 'id-card' },
+          { id: 'hub', label: 'Checklist', icon: 'clipboard-list' },
+          { id: 'raise-issue', label: 'Raise Issue', icon: 'exclamation-triangle' },
           { id: 'demands', label: 'Supplies', icon: 'truck-loading' },
           { id: 'tools', label: 'Tools', icon: 'toolbox' }
         ].map(tab => (
@@ -418,18 +375,9 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
 
       {view === 'hub' && (
         <div className="animate-fadeIn">
-          <div className="flex justify-between items-center mb-6">
-            <div className="bg-slate-900 text-indigo-400 px-4 py-2 rounded-xl border border-white/5 font-black text-[9px] uppercase tracking-widest italic animate-pulse">
-              Master_Assets Loaded: {masterACAssets.length} ACs
-            </div>
-            <button onClick={() => setShowRaiseIssueModal(true)} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] italic shadow-xl flex items-center gap-3 hover:scale-105 active:scale-95 transition-all">
-              <i className="fas fa-exclamation-triangle"></i>
-              <span>Raise Issue</span>
-            </button>
-          </div>
           <div className="bg-white p-6 md:p-10 rounded-[2.5rem] border border-slate-100 shadow-xl relative overflow-hidden">
              <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/5 blur-[100px] pointer-events-none"></div>
-             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 italic mb-8 relative z-10">{category === 'ac' ? 'Sector Deployment Control' : 'Operations Synergy Protocol'}</h3>
+             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900 italic mb-8 relative z-10">Checklist Hub</h3>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative z-10">
                 {activeTechList.map((tech, i) => {
                   const summary = zoneSummaries[i];
@@ -446,6 +394,98 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                 })}
              </div>
           </div>
+        </div>
+      )}
+
+      {view === 'raise-issue' && (
+        <div className="bg-white p-6 md:p-10 rounded-[3rem] border border-slate-100 shadow-xl animate-fadeIn flex flex-col min-h-[600px]">
+           <div className="mb-8">
+              <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Reporting Protocol</h3>
+              <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">Phase {issueStep}: {issueStep === 1 ? 'Select Campus' : issueStep === 2 ? 'Select Floor' : issueStep === 3 ? 'Select Asset' : 'Narrative Detail'}</p>
+           </div>
+
+           {isRegistryEmpty ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-rose-50 rounded-[2rem] border-2 border-rose-100">
+                 <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-4xl mb-6 shadow-inner animate-pulse">
+                    <i className="fas fa-database"></i>
+                 </div>
+                 <h4 className="text-xl font-black text-rose-900 uppercase italic mb-4">Registry Lock Error</h4>
+                 <p className="text-sm font-bold text-rose-600 uppercase tracking-widest italic leading-relaxed">❌ No AC assets detected in Master_Assets.</p>
+              </div>
+           ) : (
+              <div className="flex-1 space-y-6">
+                 {issueStep === 1 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-slideUp">
+                       {dynamicCampuses.map(c => (
+                         <button key={c} onClick={() => { setIssueData({...issueData, campus: c}); setIssueStep(2); }} className="p-10 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] hover:border-indigo-600 hover:bg-white transition-all text-left group">
+                            <span className="text-2xl font-black uppercase italic text-slate-950">Campus {c}</span>
+                            <i className="fas fa-chevron-right float-right text-slate-200 group-hover:text-indigo-600 transition-all text-xl"></i>
+                         </button>
+                       ))}
+                    </div>
+                 )}
+
+                 {issueStep === 2 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-slideUp">
+                       {dynamicFloors.map(f => (
+                         <button key={f} onClick={() => { setIssueData({...issueData, floor: f}); setIssueStep(3); }} className="p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-indigo-600 hover:bg-white transition-all text-left group">
+                            <span className="text-xl font-black uppercase italic text-slate-950">{f}</span>
+                            <i className="fas fa-chevron-right float-right text-slate-200 group-hover:text-indigo-600 transition-all"></i>
+                         </button>
+                       ))}
+                       <div className="col-span-full pt-4">
+                          <button onClick={() => setIssueStep(1)} className="text-[10px] font-black uppercase text-slate-400 italic hover:text-indigo-600">Back to Campus Selection</button>
+                       </div>
+                    </div>
+                 )}
+
+                 {issueStep === 3 && (
+                    <div className="animate-slideUp space-y-6">
+                       <div className="bg-slate-900 rounded-3xl p-6 border border-white/10 flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                             <div className="w-10 h-10 bg-indigo-500/20 rounded-xl flex items-center justify-center text-indigo-400"><i className="fas fa-satellite-dish animate-pulse"></i></div>
+                             <div>
+                                <p className="text-[8px] font-black text-indigo-400 uppercase italic mb-1">Scanning Segment</p>
+                                <p className="text-[10px] text-white font-black italic">{issueData.campus} | {issueData.floor}</p>
+                             </div>
+                          </div>
+                          <span className="bg-white/5 text-indigo-400 px-4 py-2 rounded-xl font-black text-xs">{filteredAssetsForIssue.length} Matches</span>
+                       </div>
+                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto hide-scroll">
+                          {filteredAssetsForIssue.map(a => (
+                            <button key={a.tag} onClick={() => { setIssueData({...issueData, assetTag: a.tag}); setIssueStep(4); }} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:border-indigo-600 hover:shadow-xl transition-all text-left group">
+                               <span className="bg-slate-900 text-white text-[8px] font-black px-2 py-0.5 rounded italic mb-3 inline-block uppercase">TAG: {a.tag}</span>
+                               <h4 className="text-sm font-black text-slate-900 uppercase italic leading-tight mb-2">"{a.room}"</h4>
+                               <p className="text-[8px] font-bold text-slate-300 uppercase italic">ID: #{a.id}</p>
+                            </button>
+                          ))}
+                       </div>
+                       <button onClick={() => setIssueStep(2)} className="text-[10px] font-black uppercase text-slate-400 italic">Back to Floor Selection</button>
+                    </div>
+                 )}
+
+                 {issueStep === 4 && (
+                    <div className="space-y-6 animate-slideUp">
+                       <div className="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 shadow-inner">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase mb-4 ml-1 italic tracking-widest">Technical Brief</label>
+                          <textarea value={issueData.details} onChange={e => setIssueData({...issueData, details: e.target.value})} rows={4} placeholder="Narrate the anomaly..." className="w-full bg-transparent font-black text-xl md:text-2xl outline-none uppercase italic resize-none leading-tight" />
+                       </div>
+                       <div className="flex bg-slate-100 p-2 rounded-2xl gap-3">
+                          {['Proactive', 'Reactive'].map(t => (
+                            <button key={t} onClick={() => setIssueData({...issueData, complaintType: t as any})} className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] italic transition-all ${issueData.complaintType === t ? 'bg-slate-950 text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>{t}</button>
+                          ))}
+                       </div>
+                       <div className="pt-6">
+                          <button onClick={handleRaiseIssueSubmit} disabled={!issueData.details.trim() || isSubmittingIssue} className="w-full bg-indigo-600 text-white py-8 rounded-[2rem] font-black uppercase text-[12px] tracking-[0.4em] italic shadow-2xl active:scale-95 transition-all disabled:opacity-30 flex items-center justify-center gap-6">
+                             {isSubmittingIssue ? <i className="fas fa-circle-notch animate-spin"></i> : <i className="fas fa-shield-check text-indigo-300"></i>}
+                             <span>Authorize Dispatch Protocol</span>
+                          </button>
+                          <button onClick={() => setIssueStep(3)} className="w-full mt-6 text-[10px] font-black uppercase text-slate-400 italic">Modify Asset Selection</button>
+                       </div>
+                    </div>
+                 )}
+              </div>
+           )}
         </div>
       )}
 
@@ -567,7 +607,7 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
         </div>
       )}
 
-      {/* MODALS SECTION */}
+      {/* PIN & TOOL MODALS (KEEP MODALS FOR AUTH & CRUD AS THEY ARE CLEANER) */}
       {showPinModal && (
         <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
           <div className="bg-white w-full max-w-xs rounded-[2.5rem] p-10 shadow-3xl border border-white/5">
@@ -615,150 +655,15 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
         </div>
       )}
 
-      {showRaiseIssueModal && (
-        <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
-           <div className="bg-white w-full max-w-2xl rounded-[3rem] p-10 shadow-3xl border border-white/5 relative overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="flex justify-between items-center mb-4 shrink-0">
-                 <div>
-                    <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Raise Protocol</h3>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 tracking-widest italic">Phase {issueStep}: {issueStep === 1 ? 'Select Campus' : issueStep === 2 ? 'Select Floor' : issueStep === 3 ? 'Select Asset' : 'Narrative Detail'}</p>
-                 </div>
-                 <button onClick={() => setShowRaiseIssueModal(false)} className="w-10 h-10 bg-slate-50 rounded-xl text-slate-300 hover:text-rose-500 active:scale-90 transition-all"><i className="fas fa-times text-xl"></i></button>
-              </div>
-
-              {isRegistryEmpty ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-rose-50 rounded-[2rem] border-2 border-rose-100">
-                   <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-4xl mb-6 shadow-inner animate-pulse">
-                      <i className="fas fa-database"></i>
-                   </div>
-                   <h4 className="text-xl font-black text-rose-900 uppercase italic mb-4">Registry Lock Error</h4>
-                   <p className="text-sm font-bold text-rose-600 uppercase tracking-widest italic leading-relaxed">
-                     ❌ No AC assets loaded from Master_Assets tab.<br/>Check sheet connection or permissions.
-                   </p>
-                </div>
-              ) : (
-                <>
-                  {issueStep === 3 && (
-                    <div className="mb-6 bg-slate-900 rounded-2xl p-4 border border-white/10 flex items-center justify-between group">
-                       <div className="flex items-center gap-4">
-                          <div className="w-8 h-8 bg-indigo-500/10 rounded-lg flex items-center justify-center text-indigo-400">
-                             <i className="fas fa-satellite-dish animate-pulse"></i>
-                          </div>
-                          <div>
-                            <p className="text-[7px] font-black text-indigo-400 uppercase italic tracking-widest leading-none mb-1">Maestro Query Monitor</p>
-                            <p className="text-[9px] text-white/60 font-medium">
-                              Searching <span className="text-white italic">{issueData.campus}</span> | <span className="text-white italic">{issueData.floor}</span>
-                            </p>
-                          </div>
-                       </div>
-                       <div className="text-right">
-                          <p className="text-[12px] font-black text-indigo-400 italic">{filteredAssetsForIssue.length}</p>
-                          <p className="text-[6px] font-bold text-white/30 uppercase tracking-widest">Matches Verified</p>
-                       </div>
-                    </div>
-                  )}
-
-                  <div className="flex-1 overflow-y-auto space-y-4 pr-2 hide-scroll">
-                     {issueStep === 1 && (
-                        <div className="grid grid-cols-1 gap-3 animate-slideUp">
-                           {dynamicCampuses.map(c => (
-                             <button key={c} onClick={() => { setIssueData({...issueData, campus: c}); setIssueStep(2); }} className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 hover:border-indigo-600 hover:bg-white transition-all text-left group">
-                                <span className="text-lg font-black uppercase italic text-slate-950">Campus {c}</span>
-                                <i className="fas fa-chevron-right float-right text-slate-200 group-hover:text-indigo-600 transition-all"></i>
-                             </button>
-                           ))}
-                        </div>
-                     )}
-
-                     {issueStep === 2 && (
-                        <div className="grid grid-cols-1 gap-3 animate-slideUp">
-                           {dynamicFloors.map(f => (
-                             <button key={f} onClick={() => { setIssueData({...issueData, floor: f}); setIssueStep(3); }} className="w-full bg-slate-50 p-6 rounded-2xl border-2 border-slate-100 hover:border-indigo-600 hover:bg-white transition-all text-left group">
-                                <span className="text-lg font-black uppercase italic text-slate-950">{f}</span>
-                                <i className="fas fa-chevron-right float-right text-slate-200 group-hover:text-indigo-600 transition-all"></i>
-                             </button>
-                           ))}
-                           <button onClick={() => setIssueStep(1)} className="mt-4 text-[10px] font-black uppercase text-slate-400 italic">Back to Campus Selection</button>
-                        </div>
-                     )}
-
-                     {issueStep === 3 && (
-                        <div className="animate-slideUp">
-                           <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden shadow-inner">
-                             <table className="w-full text-left border-collapse">
-                                <thead className="bg-slate-900 text-white">
-                                   <tr>
-                                      <th className="p-4 text-[8px] font-black uppercase tracking-widest italic">Asset Tag</th>
-                                      <th className="p-4 text-[8px] font-black uppercase tracking-widest italic">Asset ID</th>
-                                      <th className="p-4 text-[8px] font-black uppercase tracking-widest italic">Location</th>
-                                      <th className="p-4 text-[8px] font-black uppercase tracking-widest italic text-center">Protocol</th>
-                                   </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                   {filteredAssetsForIssue.length > 0 ? filteredAssetsForIssue.map(a => (
-                                     <tr key={a.tag} onClick={() => { setIssueData({...issueData, assetTag: a.tag}); setIssueStep(4); }} className="hover:bg-indigo-50 cursor-pointer transition-colors group">
-                                        <td className="p-4 font-black italic text-slate-900 text-[11px] group-hover:text-indigo-600">{a.tag}</td>
-                                        <td className="p-4 font-black italic text-slate-400 text-[10px] group-hover:text-indigo-600">#{a.id}</td>
-                                        <td className="p-4 font-black italic text-slate-500 text-[10px] uppercase truncate max-w-[1400px] group-hover:text-indigo-900">"{a.room}"</td>
-                                        <td className="p-4 text-center">
-                                           <span className="inline-block px-3 py-1 bg-indigo-100 text-indigo-600 rounded-lg text-[7px] font-black uppercase italic group-hover:bg-indigo-600 group-hover:text-white transition-all">Select</span>
-                                        </td>
-                                     </tr>
-                                   )) : (
-                                     <tr>
-                                        <td colSpan={4} className="py-24 text-center">
-                                           <div className="flex flex-col items-center opacity-20">
-                                              <i className="fas fa-search-minus text-6xl mb-4"></i>
-                                              <p className="text-sm font-black uppercase italic tracking-widest leading-relaxed">No Assets Detected in {issueData.floor}<br/><span className="text-[10px] opacity-60">Maestro Registry Scan Returned 0 Results</span></p>
-                                           </div>
-                                        </td>
-                                     </tr>
-                                   )}
-                                </tbody>
-                             </table>
-                           </div>
-                           <button onClick={() => setIssueStep(2)} className="mt-6 text-[10px] font-black uppercase text-slate-400 italic flex items-center gap-2">
-                              <i className="fas fa-chevron-left text-[8px]"></i>
-                              <span>Return to Floor Selection</span>
-                           </button>
-                        </div>
-                     )}
-
-                     {issueStep === 4 && (
-                        <div className="space-y-6 animate-slideUp">
-                           <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner">
-                              <label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Findings Narrative</label>
-                              <textarea value={issueData.details} onChange={e => setIssueData({...issueData, details: e.target.value})} rows={4} placeholder="Narrate the anomaly..." className="w-full bg-transparent font-black text-base outline-none uppercase italic resize-none" />
-                           </div>
-                           <div className="flex bg-slate-100 p-1.5 rounded-xl gap-2">
-                              {['Proactive', 'Reactive'].map(t => (
-                                <button key={t} onClick={() => setIssueData({...issueData, complaintType: t as any})} className={`flex-1 py-3 rounded-lg text-[9px] font-black uppercase tracking-widest italic transition-all ${issueData.complaintType === t ? 'bg-slate-950 text-white shadow-md' : 'text-slate-400'}`}>{t}</button>
-                              ))}
-                           </div>
-                           <button onClick={handleRaiseIssueSubmit} disabled={!issueData.details.trim() || isSubmittingIssue} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black uppercase text-[10px] tracking-widest italic shadow-2xl active:scale-95 transition-all disabled:opacity-30">
-                              {isSubmittingIssue ? 'Transmitting Registry Update...' : 'Authorize Dispatch Protocol'}
-                           </button>
-                           <button onClick={() => setIssueStep(3)} className="w-full text-[10px] font-black uppercase text-slate-400 italic">Modify Asset Selection</button>
-                        </div>
-                     )}
-                  </div>
-                </>
-              )}
-           </div>
-        </div>
-      )}
-
       {resolveTicket && (
         <div className="fixed inset-0 bg-slate-950/95 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-3xl relative overflow-hidden max-h-[90vh] overflow-y-auto hide-scroll">
+          <div className="bg-white w-full max-md rounded-[3rem] p-10 shadow-3xl relative overflow-hidden max-h-[90vh] overflow-y-auto hide-scroll">
              <div className="flex justify-between items-center mb-8">
                <h3 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter">Resolution Hub</h3>
                <button onClick={() => setResolveTicket(null)} className="w-12 h-12 bg-slate-50 rounded-2xl text-slate-300 flex items-center justify-center hover:text-rose-500 transition-all"><i className="fas fa-times text-xl"></i></button>
              </div>
              <div className="space-y-6">
                 <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100"><label className="block text-[8px] font-black text-slate-400 uppercase mb-4 ml-1 italic">Specialist Attribution</label><div className="grid grid-cols-2 gap-3">{allAvailableTechs.map(tech => (<button key={tech} onClick={() => toggleSolvingTech(tech)} className={`p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${solvingTechs.includes(tech) ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-md' : 'border-white bg-white text-slate-400'}`}><span className="text-[9px] font-bold uppercase">{tech}</span></button>))}</div></div>
-                
-                {/* 🔄 RESTORED: AC Refrigerant Logic Section */}
                 {category === 'ac' && (
                   <div className="bg-indigo-50/50 p-6 rounded-2xl border-2 border-indigo-100 space-y-5">
                     <div className="flex items-center justify-between">
@@ -769,7 +674,6 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                           ))}
                        </div>
                     </div>
-
                     {gasUsedYesNo === 'Yes' && (
                       <div className="space-y-4 animate-slideDown">
                         <div className="grid grid-cols-2 gap-4">
@@ -784,12 +688,10 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
                               <input type="number" step="0.1" value={gasAmount} onChange={e => setGasAmount(e.target.value)} className="w-full bg-transparent font-black text-[12px] outline-none italic" placeholder="0.0" />
                            </div>
                         </div>
-                        <p className="text-[7px] text-indigo-400 font-bold uppercase text-center italic tracking-widest animate-pulse">Inventory Stock deduction will trigger on submission</p>
                       </div>
                     )}
                   </div>
                 )}
-
                 <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 focus-within:border-indigo-600 shadow-inner"><label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic">Resolution Brief</label><textarea value={resolveRemarks} onChange={e => setResolveRemarks(e.target.value)} rows={3} placeholder="Narrate actions taken..." className="w-full bg-transparent font-bold text-[11px] outline-none italic uppercase resize-none leading-relaxed" /></div>
                 <button onClick={handleResolve} disabled={isResolving || !resolveRemarks.trim() || solvingTechs.length === 0} className="w-full bg-slate-950 text-white py-6 rounded-[1.5rem] font-black uppercase text-[10px] tracking-[0.4em] shadow-2xl active:scale-[0.98] transition-all disabled:opacity-30 italic flex items-center justify-center gap-4">{isResolving ? <i className="fas fa-circle-notch animate-spin text-teal-400"></i> : <i className="fas fa-check-double text-teal-400"></i>}<span>{isResolving ? 'Synchronizing...' : 'Finalize Task'}</span></button>
              </div>

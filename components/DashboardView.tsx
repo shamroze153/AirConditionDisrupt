@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Asset, Ticket, StatsResponse, FMCategory } from '../types.ts';
 import GasStatus from './GasStatus.tsx';
@@ -25,7 +26,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const [openAlertCat, setOpenAlertCat] = useState<string | null>(null);
   const [historyType, setHistoryType] = useState<'complaint' | 'checklist'>('checklist');
   
-  // RESTORED: Dynamic Date Range State
   const [dateRange, setDateRange] = useState({ 
     start: new Date(new Date().setDate(new Date().getDate() - 14)).toISOString().split('T')[0], 
     end: new Date().toISOString().split('T')[0] 
@@ -77,26 +77,89 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
 
   const checklistAnalysis = useMemo(() => {
     if (historyType !== 'checklist') return { completeDays: [], missedDays: [] };
-    const operationalAssets = assets.filter(a => { const s = String(a.status || '').trim().toUpperCase(); return s === 'ACTIVE' || s === 'MAINTENANCE'; }).sort((a, b) => Number(a.id) - Number(b.id));
+    
+    const operationalAssets = assets.filter(a => { 
+      const s = String(a.status || '').trim().toUpperCase(); 
+      return s === 'ACTIVE' || s === 'MAINTENANCE'; 
+    }).sort((a, b) => Number(a.id) - Number(b.id));
+
     const groups: Record<string, { entries: any[], doneUniqueTags: Set<string>, frequency: string }> = {};
-    historyData.forEach(item => { const d = parseHubDate(item[0] || item.Timestamp); if (!d) return; const dateKey = d.toLocaleDateString('en-CA'); const itemFreq = String(item[8] || 'Daily').trim(); if (!groups[dateKey]) groups[dateKey] = { entries: [], doneUniqueTags: new Set(), frequency: itemFreq }; groups[dateKey].entries.push(item); const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase(); if (rawTag && operationalAssetMap.has(rawTag)) groups[dateKey].doneUniqueTags.add(rawTag); });
-    const completeDays: any[] = []; const missedDays: any[] = [];
-    Object.entries(groups).forEach(([date, meta]) => {
-      let totalReq = operationalAssets.length; let missedAssetsList: any[] = [];
-      if (category.id === 'electrical') {
-        const freq = meta.frequency || 'Daily'; const itemsInFreq = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === freq); totalReq = itemsInFreq.length * 3;
-        ['140H', '141D', '141C'].forEach(campus => { itemsInFreq.forEach(task => { const expectedTag = `${task.id}_${campus}`.toUpperCase(); if (!meta.doneUniqueTags.has(expectedTag)) missedAssetsList.push({ tag: expectedTag, room: `Campus ${campus}`, detail: task.label }); }); });
-      } else { missedAssetsList = operationalAssets.filter(a => !meta.doneUniqueTags.has(String(a.tag).trim().toUpperCase())).map(a => ({ tag: a.tag, room: a.room })); }
-      const res = { date, entries: meta.entries.filter((e: any) => operationalAssetMap.has(String(e[2]).toUpperCase())), doneCount: meta.doneUniqueTags.size, totalRequired: totalReq, missedAssets: missedAssetsList };
-      if (res.doneCount >= totalReq) completeDays.push(res); else missedDays.push(res);
+    
+    historyData.forEach(item => { 
+      const d = parseHubDate(item[0] || item.Timestamp); 
+      if (!d) return; 
+      const dateKey = d.toLocaleDateString('en-CA'); 
+      const itemFreq = String(item[8] || 'Daily').trim(); 
+      
+      if (!groups[dateKey]) groups[dateKey] = { entries: [], doneUniqueTags: new Set(), frequency: itemFreq }; 
+      
+      groups[dateKey].entries.push(item); 
+      const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase(); 
+      
+      // FIX: Allow Electrical tags to be recognized even if they aren't in the Master_Assets sheet
+      if (rawTag) {
+        if (category.id === 'electrical' || operationalAssetMap.has(rawTag)) {
+          groups[dateKey].doneUniqueTags.add(rawTag); 
+        }
+      }
     });
-    return { completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) };
+
+    const completeDays: any[] = []; 
+    const missedDays: any[] = [];
+    
+    Object.entries(groups).forEach(([date, meta]) => {
+      let totalReq = operationalAssets.length; 
+      let missedAssetsList: any[] = [];
+      
+      if (category.id === 'electrical') {
+        const freq = meta.frequency || 'Daily'; 
+        const itemsInFreq = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === freq); 
+        totalReq = itemsInFreq.length * 3; // 3 Campuses
+        
+        ['140H', '141D', '141C'].forEach(campus => { 
+          itemsInFreq.forEach(task => { 
+            const expectedTag = `${task.id}_${campus}`.toUpperCase(); 
+            if (!meta.doneUniqueTags.has(expectedTag)) {
+              missedAssetsList.push({ tag: expectedTag, room: `Campus ${campus}`, detail: task.label }); 
+            }
+          }); 
+        });
+      } else { 
+        missedAssetsList = operationalAssets
+          .filter(a => !meta.doneUniqueTags.has(String(a.tag).trim().toUpperCase()))
+          .map(a => ({ tag: a.tag, room: a.room })); 
+      }
+      
+      // Filter entries displayed in the drill-down. 
+      // For electrical we show everything, for AC we only show operational asset hits.
+      const entriesToShow = category.id === 'electrical' 
+        ? meta.entries 
+        : meta.entries.filter((e: any) => operationalAssetMap.has(String(e[2]).toUpperCase()));
+
+      const res = { 
+        date, 
+        entries: entriesToShow, 
+        doneCount: meta.doneUniqueTags.size, 
+        totalRequired: totalReq, 
+        missedAssets: missedAssetsList 
+      };
+
+      if (res.doneCount >= totalReq && totalReq > 0) {
+        completeDays.push(res); 
+      } else {
+        missedDays.push(res); 
+      }
+    });
+
+    return { 
+      completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), 
+      missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) 
+    };
   }, [historyData, assets, historyType, category.id, operationalAssetMap, parseHubDate]);
 
   const handleShuffle = async (tag: string, newStatus: string) => { setShufflingTag(tag); await updateAssetStatus(category.id, tag, newStatus); setShufflingTag(null); onRefresh(); };
   const handleAcknowledge = async (asset: Asset, cat: string) => { setProcessingInsight(asset.tag); try { await logInsight(category.id, asset.tag, cat, `Acknowledged by Hub Command`); onRefresh(); } catch (e) { console.error(e); } finally { setProcessingInsight(null); } };
 
-  // RESTORED: CSV Export Logic
   const handleExportCSV = () => {
     if (!historyData.length) return;
     const headers = historyType === 'checklist'
@@ -172,7 +235,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                   </div>
                 </div>
                 
-                {/* RESTORED: Date Filter UI & CSV Export */}
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
                     <label className="text-[7px] font-black text-slate-400 uppercase italic">From:</label>
@@ -235,8 +297,20 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                     <div key={day.date}>
                       <button onClick={() => setExpandedDate(expandedDate === day.date ? null : day.date)} className="w-full flex justify-between items-center p-3 rounded-lg border bg-emerald-50/20 border-emerald-100">
                         <span className="text-[10px] font-bold text-emerald-900 italic">{day.date}</span>
-                        <span className="text-[7px] font-black uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full">DONE ({day.doneCount})</span>
+                        <span className="text-[7px] font-black uppercase bg-emerald-600 text-white px-2 py-0.5 rounded-full">DONE ({day.doneCount}/{day.totalRequired})</span>
                       </button>
+                      {expandedDate === day.date && (
+                         <div className="mt-1.5 p-3 bg-emerald-50/50 rounded-lg animate-slideDown">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                              {day.entries.map((e: any, idx: number) => (
+                                <div key={idx} className="bg-white p-2 rounded-xl border border-emerald-100 shadow-sm">
+                                  <p className="text-[9px] font-black text-indigo-600 italic truncate">{e[2]}</p>
+                                  <p className="text-[7px] font-bold text-slate-400 truncate uppercase mt-1">VERIFIED BY {e[1]}</p>
+                                </div>
+                              ))}
+                            </div>
+                         </div>
+                      )}
                     </div>
                   ))}
                   {checklistAnalysis.missedDays.map(day => (
@@ -248,13 +322,13 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                       {expandedDate === day.date && (
                         <div className="mt-1.5 p-3 bg-rose-50/50 rounded-lg animate-slideDown space-y-3">
                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                             {day.missedAssets.slice(0, 15).map((a: any, idx: number) => (
-                               <div key={idx} className="bg-white p-2 rounded-xl border border-rose-100">
+                             {day.missedAssets.slice(0, 30).map((a: any, idx: number) => (
+                               <div key={idx} className="bg-white p-2 rounded-xl border border-rose-100 shadow-sm">
                                  <p className="text-[9px] font-black text-rose-600 italic truncate">{a.tag}</p>
                                  <p className="text-[7px] font-bold text-slate-400 truncate uppercase mt-1">{a.room}</p>
                                </div>
                              ))}
-                             {day.missedAssets.length > 15 && <p className="text-[7px] text-slate-400 font-black italic">+{day.missedAssets.length - 15} more...</p>}
+                             {day.missedAssets.length > 30 && <p className="text-[7px] text-slate-400 font-black italic">+{day.missedAssets.length - 30} more...</p>}
                            </div>
                         </div>
                       )}
