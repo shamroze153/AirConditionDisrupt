@@ -34,30 +34,92 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
-  const [detailView, setDetailView] = useState<{title: string, data: Asset[], color: string} | null>(null);
+  
+  // Refactored: Store only the active label to prevent blinking/stale data in modal
+  const [activeGroupLabel, setActiveGroupLabel] = useState<string | null>(null);
+  
   const [processingInsight, setProcessingInsight] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [shufflingTag, setShufflingTag] = useState<string | null>(null);
 
   const parseHubDate = useCallback((dateStr: any) => { if (!dateStr) return null; const d = new Date(dateStr); return isNaN(d.getTime()) ? null : d; }, []);
 
+  // 🔄 LIVE SYNC LOGIC: Force status based on active work orders
+  const synchronizedAssets = useMemo(() => {
+    return assets.map(a => {
+      if (category.id !== 'ac') return a;
+
+      const activeStatuses = ['Open', 'In Progress', 'Pending', 'On Hold', 'Pending Assignment'];
+      const hasActiveTicket = tickets.some(t => 
+        String(t.assetTag || '').trim().toUpperCase() === String(a.tag || '').trim().toUpperCase() &&
+        activeStatuses.includes(t.status)
+      );
+
+      let derivedStatus = a.status;
+      if (hasActiveTicket) {
+        derivedStatus = 'Maintenance';
+      } else if (a.status === 'Maintenance') {
+        derivedStatus = 'Active';
+      }
+      return { ...a, status: derivedStatus };
+    });
+  }, [assets, tickets, category.id]);
+
   const assetGroups = useMemo(() => {
-    const groups = { Active: [] as Asset[], Maintenance: [] as Asset[], Spare: [] as Asset[], 'Waiting for Disposal': [] as Asset[], Disposed: [] as Asset[], installedTotal: 0 };
-    assets.forEach(a => { const s = String(a.status || 'Active'); if (groups[s as keyof typeof groups] !== undefined) (groups[s as keyof typeof groups] as Asset[]).push(a); });
+    const groups = { 
+      Active: [] as Asset[], 
+      Maintenance: [] as Asset[], 
+      Spare: [] as Asset[], 
+      'Waiting for Disposal': [] as Asset[], 
+      Disposed: [] as Asset[], 
+      installedTotal: 0 
+    };
+    synchronizedAssets.forEach(a => { 
+      const s = String(a.status || 'Active'); 
+      if (groups[s as keyof typeof groups] !== undefined) (groups[s as keyof typeof groups] as Asset[]).push(a); 
+    });
     groups.installedTotal = groups.Active.length + groups.Maintenance.length;
     return groups;
-  }, [assets]);
+  }, [synchronizedAssets]);
 
-  const operationalAssetMap = useMemo(() => { const map = new Set<string>(); assets.forEach(a => { const s = String(a.status || '').toUpperCase(); if (s === 'ACTIVE' || s === 'MAINTENANCE') map.add(String(a.tag).trim().toUpperCase()); }); return map; }, [assets]);
+  // Derived detail view data based on activeGroupLabel
+  const activeDetailData = useMemo(() => {
+    if (!activeGroupLabel) return null;
+    const label = activeGroupLabel as keyof typeof assetGroups;
+    if (label === 'installedTotal') return null;
+    
+    const colorMap: Record<string, string> = {
+      'Active': 'emerald',
+      'Maintenance': 'amber',
+      'Spare': 'slate',
+      'Waiting for Disposal': 'rose',
+      'Disposed': 'gray'
+    };
+
+    return {
+      title: activeGroupLabel,
+      data: assetGroups[label] as Asset[] || [],
+      color: colorMap[activeGroupLabel] || 'indigo'
+    };
+  }, [activeGroupLabel, assetGroups]);
+
+  const operationalAssetMap = useMemo(() => { 
+    const map = new Set<string>(); 
+    synchronizedAssets.forEach(a => { 
+      const s = String(a.status || '').toUpperCase(); 
+      if (s === 'ACTIVE' || s === 'MAINTENANCE') map.add(String(a.tag).trim().toUpperCase()); 
+    }); 
+    return map; 
+  }, [synchronizedAssets]);
 
   const insights = useMemo(() => {
     const handled = (stats?.acknowledgedInsights || []) as {tag: string, type: string}[];
-    const lifeAlerts = assets.filter(a => !handled.some(h => h.tag === a.tag && h.type.includes('Life')) && a.year && (new Date().getFullYear() - Number(a.year)) >= 5);
+    const lifeAlerts = synchronizedAssets.filter(a => !handled.some(h => h.tag === a.tag && h.type.includes('Life')) && a.year && (new Date().getFullYear() - Number(a.year)) >= 5);
     const faultCounts: Record<string, number> = {};
     tickets.forEach(t => { if(t.assetTag) faultCounts[t.assetTag] = (faultCounts[t.assetTag] || 0) + 1 });
-    const recurring = Object.keys(faultCounts).filter(tag => faultCounts[tag] >= 3).map(tag => assets.find(a => a.tag === tag)).filter((a): a is Asset => !!a && !handled.some(h => h.tag === a.tag && h.type.includes('Recurring')));
+    const recurring = Object.keys(faultCounts).filter(tag => faultCounts[tag] >= 3).map(tag => synchronizedAssets.find(a => a.tag === tag)).filter((a): a is Asset => !!a && !handled.some(h => h.tag === a.tag && h.type.includes('Recurring')));
     return { lifeAlerts, recurring };
-  }, [assets, tickets, stats]);
+  }, [synchronizedAssets, tickets, stats]);
 
   const fetchHistory = useCallback(async () => { 
     setIsFetchingHistory(true); 
@@ -78,7 +140,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const checklistAnalysis = useMemo(() => {
     if (historyType !== 'checklist') return { completeDays: [], missedDays: [] };
     
-    const operationalAssets = assets.filter(a => { 
+    const operationalAssets = synchronizedAssets.filter(a => { 
       const s = String(a.status || '').trim().toUpperCase(); 
       return s === 'ACTIVE' || s === 'MAINTENANCE'; 
     }).sort((a, b) => Number(a.id) - Number(b.id));
@@ -96,7 +158,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       groups[dateKey].entries.push(item); 
       const rawTag = String(item[2] || item.AssetTag || '').trim().toUpperCase(); 
       
-      // FIX: Allow Electrical tags to be recognized even if they aren't in the Master_Assets sheet
       if (rawTag) {
         if (category.id === 'electrical' || operationalAssetMap.has(rawTag)) {
           groups[dateKey].doneUniqueTags.add(rawTag); 
@@ -114,7 +175,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       if (category.id === 'electrical') {
         const freq = meta.frequency || 'Daily'; 
         const itemsInFreq = ELECTRICAL_MODULE_DATA.commonItems.filter(i => i.frequency === freq); 
-        totalReq = itemsInFreq.length * 3; // 3 Campuses
+        totalReq = itemsInFreq.length * 3;
         
         ['140H', '141D', '141C'].forEach(campus => { 
           itemsInFreq.forEach(task => { 
@@ -130,8 +191,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
           .map(a => ({ tag: a.tag, room: a.room })); 
       }
       
-      // Filter entries displayed in the drill-down. 
-      // For electrical we show everything, for AC we only show operational asset hits.
       const entriesToShow = category.id === 'electrical' 
         ? meta.entries 
         : meta.entries.filter((e: any) => operationalAssetMap.has(String(e[2]).toUpperCase()));
@@ -155,7 +214,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       completeDays: completeDays.sort((a,b) => b.date.localeCompare(a.date)), 
       missedDays: missedDays.sort((a,b) => b.date.localeCompare(a.date)) 
     };
-  }, [historyData, assets, historyType, category.id, operationalAssetMap, parseHubDate]);
+  }, [historyData, synchronizedAssets, historyType, category.id, operationalAssetMap, parseHubDate]);
 
   const handleShuffle = async (tag: string, newStatus: string) => { setShufflingTag(tag); await updateAssetStatus(category.id, tag, newStatus); setShufflingTag(null); onRefresh(); };
   const handleAcknowledge = async (asset: Asset, cat: string) => { setProcessingInsight(asset.tag); try { await logInsight(category.id, asset.tag, cat, `Acknowledged by Hub Command`); onRefresh(); } catch (e) { console.error(e); } finally { setProcessingInsight(null); } };
@@ -183,7 +242,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto p-4 space-y-6 animate-fadeIn">
+    <div className="max-w-[1600px] mx-auto p-4 space-y-6">
       <section className="bg-white rounded-xl premium-card border border-slate-100 overflow-hidden">
         <button onClick={() => setIsInsightsOpen(!isInsightsOpen)} className="w-full px-4 py-3 flex justify-between items-center hover:bg-slate-50 transition-colors">
           <div className="flex items-center gap-2"><span className={`w-1.5 h-1.5 bg-${category.color}-600 rounded-full animate-ping`}></span><h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-900 italic">{category.name} Live Monitor</h3></div>
@@ -204,7 +263,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
       <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-slate-900 text-white p-4 rounded-xl shadow-lg flex flex-col justify-between h-28 relative overflow-hidden group border border-white/5"><div className={`absolute top-0 right-0 w-20 h-20 bg-${category.color}-500/10 blur-[30px] group-hover:bg-${category.color}-500/20 transition-all`}></div><div><p className={`text-[8px] font-black uppercase tracking-[0.4em] text-${category.color}-400 mb-1`}>Total Operational</p><h2 className="text-3xl font-extrabold tracking-tighter italic">{assetGroups.installedTotal}</h2></div></div>
         {[ {label: 'Active', list: assetGroups.Active, color: 'emerald', icon: 'shield-check'}, {label: 'Maintenance', list: assetGroups.Maintenance, color: 'amber', icon: 'wrench'}, {label: 'Spare', list: assetGroups.Spare, color: 'slate', icon: 'box-archive'}, {label: 'Waiting for Disposal', list: assetGroups['Waiting for Disposal'], color: 'rose', icon: 'trash-can'}, {label: 'Disposed', list: assetGroups.Disposed, color: 'gray', icon: 'ban'} ].map(g => (
-          <button key={g.label} onClick={() => setDetailView({title: g.label, data: g.list, color: g.color})} className="bg-white p-3 rounded-xl border border-slate-100 premium-card text-left flex items-center justify-between group">
+          <button key={g.label} onClick={() => setActiveGroupLabel(g.label)} className="bg-white p-3 rounded-xl border border-slate-100 premium-card text-left flex items-center justify-between group">
             <div><span className={`text-[8px] font-black uppercase tracking-widest text-${g.color}-600 bg-${g.color}-50 px-1.5 py-0.5 rounded mb-1 inline-block truncate max-w-[80px]`}>{g.label}</span><p className="text-xl font-black text-slate-900">{g.list.length}</p></div>
             <div className={`w-9 h-9 bg-slate-50 text-slate-200 rounded-lg flex items-center justify-center text-lg group-hover:bg-${g.color}-600 group-hover:text-white transition-all`}><i className={`fas fa-${g.icon}`}></i></div>
           </button>
@@ -345,18 +404,19 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
          <LeaderboardItem category={category.id} performanceLogs={stats?.performanceLogs || []} limit={4} onRefresh={onRefresh} compact={false} />
       </section>
 
-      {detailView && (
-        <div className="fixed inset-0 bg-slate-950/90 z-[200] p-4 backdrop-blur-md flex items-center justify-center animate-fadeIn">
-          <div className="bg-white w-full max-w-5xl rounded-xl h-[80vh] flex flex-col shadow-2xl overflow-hidden border border-white/10">
+      {/* REFACTORED MODAL: Stable content derived from label */}
+      {activeDetailData && (
+        <div className="fixed inset-0 bg-slate-950/90 z-[200] p-4 backdrop-blur-md flex items-center justify-center">
+          <div className="bg-white w-full max-w-5xl rounded-xl h-[80vh] flex flex-col shadow-2xl overflow-hidden border border-white/10 animate-slideUp">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="text-xl font-extrabold uppercase italic tracking-tighter text-slate-900">{detailView.title} Registry</h3>
+              <h3 className="text-xl font-extrabold uppercase italic tracking-tighter text-slate-900">{activeDetailData.title} Registry</h3>
               <div className="flex items-center gap-2">
                  <input type="text" placeholder="Filter..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-32 lg:w-48 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-[10px] font-bold outline-none" />
-                 <button onClick={() => setDetailView(null)} className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 active:scale-90"><i className="fas fa-times"></i></button>
+                 <button onClick={() => { setActiveGroupLabel(null); setSearchQuery(''); }} className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-slate-300 hover:text-rose-500 active:scale-90"><i className="fas fa-times"></i></button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 hide-scroll bg-slate-50/30">
-              {detailView.data.filter(a => !searchQuery || a.tag.toLowerCase().includes(searchQuery.toLowerCase()) || a.room.toLowerCase().includes(searchQuery.toLowerCase())).map((item, idx) => (
+              {activeDetailData.data.filter(a => !searchQuery || a.tag.toLowerCase().includes(searchQuery.toLowerCase()) || a.room.toLowerCase().includes(searchQuery.toLowerCase())).map((item, idx) => (
                 <div key={idx} className="bg-white p-4 rounded-xl premium-card border border-slate-100 flex flex-col justify-between group">
                   <div>
                     <span className="bg-slate-900 text-white text-[8px] font-black px-2.5 py-1 rounded-full uppercase mb-2 inline-block">{item.tag}</span>
@@ -375,6 +435,12 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                   </div>
                 </div>
               ))}
+              {activeDetailData.data.length === 0 && (
+                <div className="col-span-full py-20 text-center opacity-20">
+                  <i className="fas fa-folder-open text-5xl mb-4"></i>
+                  <p className="text-xs font-black uppercase italic">No items found in this category</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
