@@ -1,8 +1,10 @@
+
 import { FMCategory } from './types';
 
 export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyf8b-2RQRX_XTI2GbhtTelsKwk04nva6K0-15LlCmKoRspKmHh2egs23gTqZ6Qw2hAHw/exec";
 
-export const TECHNICIANS = ['Bilal', 'Asad', 'Taimoor', 'Saboor'];
+// Swapped Taimoor and Saboor for Zone assignment logic
+export const TECHNICIANS = ['Bilal', 'Asad', 'Saboor', 'Taimoor'];
 export const ELECTRICAL_TECHNICIANS = ['Ibraheem', 'Naveed Ali', 'Haris', 'Owais'];
 export const GM_TECHNICIANS = ['Sajid']; 
 
