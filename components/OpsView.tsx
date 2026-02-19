@@ -13,6 +13,19 @@ interface Props {
   showToast: (msg: string) => void;
 }
 
+const resolveStatusLabel = (status: any) => {
+  const s = String(status || '').trim();
+  const map: Record<string, string> = { '1': 'Open', '2': 'In Progress', '3': 'On Hold', '4': 'Pending', '5': 'Completed' };
+  return map[s] || status;
+};
+
+const ISSUE_CATEGORIES: Record<string, string[]> = {
+  'ac': ['Cooling Issue', 'Water Leakage', 'Noisy Operation', 'Electrical Fault', 'Preventive Check', 'Gas Top-up', 'Others'],
+  'electrical': ['Power Outage', 'Socket/Switch Fault', 'Lighting Issue', 'UPS/Generator', 'DB Trip', 'Others'],
+  'handyman': ['Furniture Repair', 'Door/Lock Fix', 'Wall/Paint', 'Plumbing', 'Glass Work', 'Others'],
+  'default': ['Technical Breakdown', 'General Request', 'Safety Hazard', 'Operational Support', 'Others']
+};
+
 const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRefresh, showToast }) => {
   const [isOpsUnlocked, setIsOpsUnlocked] = useState(false);
   const [mainPinInput, setMainPinInput] = useState('');
@@ -21,13 +34,12 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
   const [foundAsset, setFoundAsset] = useState<Asset | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [faultDesc, setFaultDesc] = useState('');
+  const [issueCategory, setIssueCategory] = useState('');
   const [complaintType, setComplaintType] = useState<'Proactive' | 'Reactive'>('Proactive');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Renamed setAssignedFeedback to setAssignmentFeedback to match usage on lines 87 and 88
   const [assignmentFeedback, setAssignmentFeedback] = useState<string | null>(null);
   const [submittingRows, setSubmittingRows] = useState<Set<number>>(new Set());
 
-  // Review Flow State
   const [reviewTicket, setReviewTicket] = useState<Ticket | null>(null);
   const [selectedStars, setSelectedStars] = useState<number>(0);
   const [hoverStars, setHoverStars] = useState<number>(0);
@@ -36,7 +48,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
 
   const techList = CATEGORY_TECHS[category] || [];
 
-  // Separation of concerns: Active Pipeline vs Audit Ledger
   const liveQueue = useMemo(() => 
     tickets.filter(t => !['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status)), 
     [tickets]
@@ -46,6 +57,10 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
     tickets.filter(t => t.status === 'Resolved – Pending Admin Review'),
     [tickets]
   );
+
+  useEffect(() => {
+    setIssueCategory(ISSUE_CATEGORIES[category]?.[0] || ISSUE_CATEGORIES.default[0]);
+  }, [category]);
 
   const handleLookup = (val: string) => {
     setLookupId(val);
@@ -76,6 +91,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
       fd.append('action', 'complain');
       fd.append('category', category.toUpperCase()); 
       fd.append('complaintType', complaintType);
+      fd.append('issueCategory', issueCategory);
       const targetTag = String(foundAsset?.tag || 'N/A');
       fd.append('location', category === 'ac' ? `${foundAsset?.campus} - ${foundAsset?.floor} - ${foundAsset?.room}` : 'Command Assigned');
       fd.append('assetTag', targetTag);
@@ -130,10 +146,7 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
 
     setIsReviewing(true);
     try {
-      // Points allocation based on star config
       const points = config?.points || 0;
-      
-      // Extract tech name from resolvedBy field (format: TechName • Timestamp)
       const technicianName = (reviewTicket.resolvedBy || reviewTicket.assignedTo).split('•')[0].trim();
 
       await adminReviewTicket(
@@ -181,7 +194,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* ACTIVE PIPELINE */}
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col min-h-[420px] overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/20">
             <div className="flex items-center gap-3">
@@ -195,8 +207,17 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
               <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden group">
                 <div className="absolute left-0 top-0 h-full w-1 bg-slate-900 opacity-20"></div>
                 <div className="flex-1 space-y-2">
-                  <span className="text-[7px] px-2 py-0.5 rounded font-black uppercase tracking-widest bg-indigo-50 text-indigo-600">{t.status}</span>
-                  <h4 className="font-black text-slate-900 text-[14px] leading-tight italic uppercase">"{t.details}"</h4>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[7px] px-2 py-0.5 rounded font-black uppercase tracking-widest bg-indigo-50 text-indigo-600">{t.status}</span>
+                    {Number(t.repeatCount || 0) > 1 && (
+                      <div className="flex items-center gap-1.5 bg-rose-600 text-white text-[7px] font-black px-2 py-0.5 rounded uppercase italic animate-pulse shadow-md">
+                        <i className="fas fa-redo-alt text-[6px]"></i>
+                        <span>Repeated {t.repeatCount} Times</span>
+                      </div>
+                    )}
+                    <span className="text-[7px] font-black text-slate-400 uppercase italic">/ {t.issueCategory}</span>
+                  </div>
+                  <h4 className="font-black text-slate-900 text-[14px] leading-tight italic uppercase whitespace-pre-wrap">"{t.details}"</h4>
                   <p className="text-[7px] text-slate-400 font-bold uppercase italic">{t.location} • {t.assetTag}</p>
                 </div>
                 <div className="flex items-center gap-4 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-50">
@@ -215,7 +236,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
           </div>
         </div>
 
-        {/* AUDIT LEDGER */}
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col min-h-[420px] overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20">
             <div className="flex items-center gap-3">
@@ -232,6 +252,9 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                   <div className="flex items-center gap-2">
                     <span className="text-[7px] px-2 py-0.5 rounded font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 italic">Resolved</span>
                     <span className="text-[7px] text-slate-300 font-bold uppercase italic">{t.workType}</span>
+                    {Number(t.repeatCount || 0) > 1 && (
+                      <span className="bg-rose-50 text-rose-600 text-[7px] font-black px-2 py-0.5 rounded uppercase italic border border-rose-100">Repeat: {t.repeatCount}</span>
+                    )}
                   </div>
                   <h4 className="font-black text-slate-900 text-[14px] leading-tight italic uppercase">"{t.details}"</h4>
                   <p className="text-[7px] text-slate-400 font-bold uppercase italic">{t.location} • {t.assetTag}</p>
@@ -253,7 +276,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
         </div>
       </div>
 
-      {/* ADMIN REVIEW MODAL */}
       {reviewTicket && (
         <div className="fixed inset-0 bg-slate-950/98 z-[600] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
           <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 shadow-3xl border border-white/5 relative overflow-hidden">
@@ -271,7 +293,12 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
 
              <div className="space-y-8 relative z-10">
                 <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
-                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic mb-2">Technical Summary</p>
+                   <div className="flex items-center gap-3 mb-2">
+                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic">Technical Summary</p>
+                     {Number(reviewTicket.repeatCount || 0) > 1 && (
+                       <span className="text-[7px] font-black text-rose-600 uppercase italic">Merged Issue ({reviewTicket.repeatCount} entries)</span>
+                     )}
+                   </div>
                    <h4 className="text-lg font-black text-slate-900 italic uppercase">"{reviewTicket.details}"</h4>
                    <div className="flex flex-wrap gap-4 mt-4">
                       <div><p className="text-[7px] font-bold text-slate-300 uppercase italic">Technician</p><p className="text-[11px] font-black text-indigo-600 uppercase">{(reviewTicket.resolvedBy || reviewTicket.assignedTo).split('•')[0]}</p></div>
@@ -302,7 +329,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                       })}
                    </div>
 
-                   {/* HOVER ANALYTICS PREVIEW */}
                    <div className="h-6 flex items-center justify-center">
                       {(hoverStars || selectedStars) > 0 && (
                         <p className="text-[9px] font-black uppercase tracking-widest italic animate-fadeIn">
@@ -350,7 +376,6 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
         </div>
       )}
 
-      {/* EXISTING MODAL FOR RAISING ISSUES */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/98 z-[500] flex items-center justify-center p-6 backdrop-blur-3xl animate-fadeIn">
           <div className="bg-white w-full max-w-2xl rounded-[3rem] p-10 shadow-3xl border border-white/5 relative flex flex-col max-h-[90vh]">
@@ -359,6 +384,20 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner"><label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Identify Asset (Tag/ID)</label><input type="text" value={lookupId} onChange={e => handleLookup(e.target.value)} placeholder="SEARCH REGISTRY..." className="w-full bg-transparent font-black text-2xl outline-none italic uppercase text-slate-950 placeholder:text-slate-200" /></div>
                {isSearching && <div className="p-4 bg-indigo-50 rounded-2xl flex items-center gap-4 animate-pulse"><i className="fas fa-satellite-dish text-indigo-400"></i><p className="text-[10px] font-black text-indigo-900 uppercase italic">Scanning...</p></div>}
                {foundAsset && (<div className="bg-emerald-50 p-6 rounded-2xl border-2 border-emerald-100 shadow-inner animate-slideDown"><p className="text-[8px] font-black text-emerald-600 uppercase mb-2">Registry Verified</p><h4 className="text-xl font-black italic text-slate-950 uppercase">"{foundAsset.room}"</h4></div>)}
+               
+               <div className="bg-slate-50 p-4 rounded-xl border-2 border-slate-100 shadow-inner">
+                  <label className="block text-[8px] font-black text-slate-400 uppercase mb-2 ml-1 italic">Issue Classification</label>
+                  <select 
+                    value={issueCategory} 
+                    onChange={e => setIssueCategory(e.target.value)} 
+                    className="w-full bg-transparent font-black text-[12px] outline-none italic uppercase text-slate-950"
+                  >
+                    {(ISSUE_CATEGORIES[category] || ISSUE_CATEGORIES.default).map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+               </div>
+
                <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner"><label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Narrative</label><textarea value={faultDesc} onChange={e => setFaultDesc(e.target.value)} rows={3} placeholder="Describe anomaly..." className="w-full bg-transparent font-bold text-base outline-none uppercase italic resize-none" /></div>
             </div>
             <div className="pt-8 shrink-0">{assignmentFeedback ? (<div className="bg-emerald-500 text-white p-6 rounded-2xl text-center animate-bounce shadow-xl"><p className="text-xl font-black italic uppercase">Assigned to {assignmentFeedback}</p></div>) : (<button onClick={handleDispatch} disabled={isSubmitting || !faultDesc.trim() || (category === 'ac' && !foundAsset)} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.4em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30">{isSubmitting ? 'Submitting...' : 'Execute Dispatch Protocol'}</button>)}</div>

@@ -1,3 +1,4 @@
+
 export interface Asset {
   id: string | number;
   tag: string;
@@ -18,6 +19,7 @@ export interface Ticket {
   rowIndex: number;
   date: string;
   category: string;
+  issueCategory?: string;
   location: string;
   details: string;
   assetTag: string;
@@ -34,6 +36,7 @@ export interface Ticket {
   pointsAwarded?: number;
   adminReviewDate?: string;
   resolutionTimestamp?: string;
+  repeatCount?: number;
 }
 
 export interface Seat {

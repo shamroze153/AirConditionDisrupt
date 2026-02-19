@@ -1,5 +1,6 @@
+
 /**
- * DISRUPT_FM_ULTIMATE Backend v24.1 - Balanced Distribution Support
+ * DISRUPT_FM_ULTIMATE Backend v24.4 - Strategic Auto-Merge & Analytics Engine
  */
 
 const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE";
@@ -16,7 +17,7 @@ function initializeSheets(ss) {
 
   const headers = {
     'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category', 'AssignedTech'],
-    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp'],
+    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp', 'RepeatCount', 'IssueCategory'],
     'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Reference', 'Category', 'Frequency'],
     'Performance_Log': ['Timestamp', 'Technician', 'Points', 'Reason', 'Category'],
     'Material_Demands': ['Timestamp', 'Technician', 'Details', 'Status', 'Category'],
@@ -33,12 +34,12 @@ function initializeSheets(ss) {
       sheet.appendRow(headers[sheetName]);
       sheet.getRange(1, 1, 1, headers[sheetName].length).setFontWeight("bold").setBackground("#f3f3f3");
     } else {
-      // Ensure Technician column exists in Master_Assets
-      if (sheetName === 'Master_Assets') {
-        const lastCol = sheet.getLastColumn();
-        if (lastCol < 13) {
-          sheet.getRange(1, 13).setValue('AssignedTech').setFontWeight("bold").setBackground("#f3f3f3");
-        }
+      const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const targetHeaders = headers[sheetName];
+      if (currentHeaders.length < targetHeaders.length) {
+        sheet.getRange(1, currentHeaders.length + 1, 1, targetHeaders.length - currentHeaders.length)
+          .setValues([targetHeaders.slice(currentHeaders.length)])
+          .setFontWeight("bold").setBackground("#f3f3f3");
       }
     }
   });
@@ -87,7 +88,9 @@ function doGet(e) {
             resolvedBy: String(row[7] || '').trim(), workType: String(row[8] || '').trim(), remarks: String(row[9] || '').trim(), gasUsed: row[10], gasType: String(row[11] || '').trim(),
             complaintType: row[12] || 'Reactive',
             starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
-            resolutionTimestamp: row[16]
+            resolutionTimestamp: row[16],
+            repeatCount: row[17] || 1,
+            issueCategory: String(row[18] || 'Unclassified').trim()
           }))
           .filter(t => String(t.category).toUpperCase() === category);
         
@@ -165,7 +168,9 @@ function doGet(e) {
           resolvedBy: String(row[7] || '').trim(), workType: String(row[8] || '').trim(), remarks: String(row[9] || '').trim(), gasUsed: row[10], gasType: String(row[11] || '').trim(),
           complaintType: row[12] || 'Reactive',
           starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
-          resolutionTimestamp: row[16]
+          resolutionTimestamp: row[16],
+          repeatCount: row[17] || 1,
+          issueCategory: String(row[18] || 'Unclassified').trim()
         }));
         const allLogs = getSheetData(ss, 'Performance_Log').map(r => ({ Timestamp: r[0], tech: String(r[1] || '').trim(), points: Number(r[2]), reason: String(r[3] || '').trim(), category: String(r[4] || '').trim() }));
         const seatingData = getSheetData(ss, 'Seating_Plan').map(row => ({
@@ -336,17 +341,66 @@ function doPost(e) {
         break;
 
       case 'complain':
-        ss.getSheetByName('Work_Orders').appendRow([
-          new Date(), 
-          category, 
-          String(params.location || '').trim(), 
-          String(params.assetTag || '').trim().toUpperCase(), 
-          String(params.details || '').trim(), 
-          String(params.assignedTech || 'Unassigned').trim(), 
-          String(params.status || 'Open').trim(), 
-          '', '', '', 0, '', 
-          String(params.complaintType || 'Reactive').trim()
-        ]);
+        const woSheetC = ss.getSheetByName('Work_Orders');
+        const woDataC = woSheetC.getDataRange().getValues();
+        const cAssetTag = String(params.assetTag || '').trim().toUpperCase();
+        const cIssueCategory = String(params.issueCategory || 'Unclassified').trim();
+        const cCategory = category;
+        const cDetails = String(params.details || '').trim();
+        const cNow = new Date();
+        const c7DaysAgo = new Date(cNow.getTime() - (7 * 24 * 3600 * 1000));
+        
+        let existingRowIdx = -1;
+        
+        // STRICT AUTO-MERGE LOGIC
+        if (cAssetTag !== 'N/A') {
+          for (let i = woDataC.length - 1; i >= 1; i--) {
+            const rowAssetTag = String(woDataC[i][3]).trim().toUpperCase();
+            const rowCategory = String(woDataC[i][1]).trim().toUpperCase();
+            const rowIssueCategory = String(woDataC[i][18] || 'Unclassified').trim();
+            const rowStatus = String(woDataC[i][6]).trim().toLowerCase();
+            const rowTimestamp = new Date(woDataC[i][0]);
+            
+            // Criteria: Match AssetTag + Category + IssueCategory
+            // AND (Status is active OR ticket was raised within last 7 days)
+            const isActive = !['resolved', 'completed', 'resolved (admin)', 'resolved – pending admin review'].includes(rowStatus);
+            const isWithin7Days = rowTimestamp >= c7DaysAgo;
+            
+            if (rowAssetTag === cAssetTag && rowCategory === cCategory && rowIssueCategory === cIssueCategory && (isActive || isWithin7Days)) {
+              existingRowIdx = i + 1;
+              break;
+            }
+          }
+        }
+
+        if (existingRowIdx !== -1) {
+          // MERGE PROTOCOL: Increment Repeat_Count and Update Last Reported Activity
+          const currentRepeatCount = Number(woDataC[existingRowIdx - 1][17] || 1);
+          const currentDetails = String(woDataC[existingRowIdx - 1][4] || '');
+          const newRepeatCount = currentRepeatCount + 1;
+          const timestampLabel = Utilities.formatDate(cNow, ss.getSpreadsheetTimeZone(), "MMM dd, HH:mm");
+          const mergedDetails = currentDetails + "\n[" + timestampLabel + " - REPEAT]: " + cDetails;
+          
+          woSheetC.getRange(existingRowIdx, 5).setValue(mergedDetails);
+          woSheetC.getRange(existingRowIdx, 7).setValue('Open'); // Ensure it remains/becomes visible as Open
+          woSheetC.getRange(existingRowIdx, 18).setValue(newRepeatCount);
+          woSheetC.getRange(existingRowIdx, 1).setValue(cNow); // Update Timestamp to reflect "Last Reported Date"
+        } else {
+          // NEW ENTRY: Create fresh Work Order
+          woSheetC.appendRow([
+            cNow, 
+            cCategory, 
+            String(params.location || '').trim(), 
+            cAssetTag, 
+            cDetails, 
+            String(params.assignedTech || 'Unassigned').trim(), 
+            String(params.status || 'Open').trim(), 
+            '', '', '', 0, '', 
+            String(params.complaintType || 'Reactive').trim(),
+            '', '', '', '', 1, 
+            cIssueCategory
+          ]);
+        }
         break;
 
       case 'update_points':

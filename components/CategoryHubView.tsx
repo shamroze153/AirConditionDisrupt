@@ -13,9 +13,16 @@ interface Props {
   elecAttendance: Record<string, boolean>;
 }
 
+const ISSUE_CATEGORIES: Record<string, string[]> = {
+  'ac': ['Cooling Issue', 'Water Leakage', 'Noisy Operation', 'Electrical Fault', 'Preventive Check', 'Gas Top-up', 'Others'],
+  'electrical': ['Power Outage', 'Socket/Switch Fault', 'Lighting Issue', 'UPS/Generator', 'DB Trip', 'Others'],
+  'handyman': ['Furniture Repair', 'Door/Lock Fix', 'Wall/Paint', 'Plumbing', 'Glass Work', 'Others'],
+  'default': ['Technical Breakdown', 'General Request', 'Safety Hazard', 'Operational Support', 'Others']
+};
+
 const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlobal, tickets, acAttendance, elecAttendance }) => {
   const [reportModal, setReportModal] = useState(false);
-  const [reportStep, setReportStep] = useState(1); // 1: Classification, 2: Registry Protocol
+  const [reportStep, setReportStep] = useState(1); // 1: Category Selection, 2: Details/Asset
   const [selectedCat, setSelectedCat] = useState<FMCategory | null>(null);
   const [isFetchingAssets, setIsFetchingAssets] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -23,9 +30,10 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   const [formData, setFormData] = useState({
     campus: '',
     floor: '',
-    location: '', // Used for Manual Text Entry (Area)
+    location: '', 
     details: '',
     tag: '',
+    issueCategory: '',
     complaintType: 'Proactive' as 'Proactive' | 'Reactive',
     immediateResolve: false
   });
@@ -51,12 +59,13 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
     setFoundAsset(null);
     setIsSearching(false);
     setAssignedFeedback(null);
-    setFormData({ campus: '', floor: '', location: '', details: '', tag: '', complaintType: 'Proactive', immediateResolve: false });
+    setFormData({ campus: '', floor: '', location: '', details: '', tag: '', issueCategory: '', complaintType: 'Proactive', immediateResolve: false });
   };
 
   const handleSelectReportCat = async (cat: FMCategory) => {
     setSelectedCat(cat);
     setReportStep(2);
+    setFormData(prev => ({ ...prev, issueCategory: ISSUE_CATEGORIES[cat.id]?.[0] || ISSUE_CATEGORIES.default[0] }));
     if (cat.id === 'ac') {
       setIsFetchingAssets(true);
       try {
@@ -81,7 +90,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
     }
 
     setIsSearching(true);
-    // Maestro Registry Sync logic
     const asset = assets.find(a => 
       String(a.id).toLowerCase() === searchVal || 
       String(a.tag || '').toLowerCase() === searchVal
@@ -124,6 +132,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       fd.append('action', 'complain');
       fd.append('category', selectedCat.id.toUpperCase());
       fd.append('complaintType', formData.complaintType);
+      fd.append('issueCategory', formData.issueCategory);
       
       let finalLocation = '';
       let finalAssigned = 'Unassigned';
@@ -153,7 +162,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 
       await postAction(fd);
 
-      // AUTOMATION: Active -> Maintenance on dashboard launch
       if (selectedCat.id === 'ac' && finalTag !== 'N/A') {
         const nextStatus = formData.immediateResolve ? 'Active' : 'Maintenance';
         await updateAssetStatus(selectedCat.id as any, finalTag, nextStatus);
@@ -298,6 +306,19 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                        </div>
                     </div>
 
+                    <div className="bg-slate-50 p-4 md:p-5 rounded-xl md:rounded-2xl border-2 border-slate-100 shadow-inner">
+                        <label className="block text-[8px] md:text-[9px] font-black text-slate-400 uppercase mb-2 md:mb-3 ml-1 italic">Issue Classification</label>
+                        <select 
+                          value={formData.issueCategory} 
+                          onChange={e => setFormData({...formData, issueCategory: e.target.value})} 
+                          className="w-full bg-transparent font-black text-[10px] md:text-[12px] outline-none italic uppercase text-slate-950"
+                        >
+                          {(ISSUE_CATEGORIES[selectedCat?.id || ''] || ISSUE_CATEGORIES.default).map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                    </div>
+
                     {selectedCat?.id === 'ac' ? (
                       <div className="bg-slate-50 p-4 md:p-6 rounded-2xl md:rounded-[2rem] border-2 border-slate-100 focus-within:border-indigo-600 transition-all shadow-inner">
                           <label className="block text-[8px] md:text-[9px] font-black text-slate-400 uppercase mb-2 md:mb-3 ml-1 italic tracking-widest">Asset Recognition (Enter ID / Tag)</label>
@@ -317,7 +338,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                             )}
                           </div>
 
-                          {/* MAESTRO WAIT UI */}
                           {isSearching && !foundAsset && (
                             <div className="mt-4 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-pulse flex items-center gap-4">
                                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-400 shadow-sm">
@@ -355,7 +375,6 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                       </div>
                     ) : (
                       <div className="space-y-4">
-                          {/* 4-STEP MAESTRO FLOW FOR ELECTRICAL/GM */}
                           <div className="bg-slate-50 p-4 md:p-5 rounded-xl md:rounded-2xl border-2 border-slate-100 shadow-inner">
                               <label className="block text-[8px] md:text-[9px] font-black text-slate-400 uppercase mb-2 md:mb-3 ml-1 italic">Step 1: Campus / Hub</label>
                               <div className="flex flex-wrap gap-2 md:gap-3">
@@ -433,7 +452,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
 };
 
 const CategoryCard: React.FC<{ category: FMCategory, onClick: (cat: FMCategory) => void }> = ({ category, onClick }) => (
-  <button onClick={() => onClick(category)} className="bg-white p-6 md:p-10 rounded-2xl md:rounded-[3rem] border border-slate-100 group text-left relative overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-sm hover:shadow-xl">
+  <button onClick={() => onClick(category)} className="bg-white p-6 md:p-10 rounded-2xl md:rounded-[3rem] border border-slate-100 group text-left relative overflow-hidden transition-all hover:scale-105 active:scale-[0.98] shadow-sm hover:shadow-xl">
     <div className={`absolute top-0 right-0 w-32 md:w-48 h-32 md:h-48 bg-${category?.color}-500/5 blur-[50px] group-hover:bg-${category?.color}-500/10 transition-all duration-700`}></div>
     <div className={`w-10 h-10 md:w-16 md:h-16 bg-${category?.color}-50 text-${category?.color}-600 rounded-xl md:rounded-[1.5rem] flex items-center justify-center text-xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all duration-500 mb-6 md:mb-10`}>
       <i className={`fas fa-${category?.icon}`}></i>

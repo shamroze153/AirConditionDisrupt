@@ -1,12 +1,12 @@
 
 import { FMCategory } from './types';
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyf8b-2RQRX_XTI2GbhtTelsKwk04nva6K0-15LlCmKoRspKmHh2egs23gTqZ6Qw2hAHw/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw0oRXEFgBn679uPCRu6gnkMkMnee6rhQmtfQlGegKFam5eDii3_krZH0CHoWo-Ap0R0A/exec";
 
 // Swapped Taimoor and Saboor for Zone assignment logic
 export const TECHNICIANS = ['Bilal', 'Asad', 'Saboor', 'Taimoor'];
 export const ELECTRICAL_TECHNICIANS = ['Ibraheem', 'Naveed Ali', 'Haris', 'Owais'];
-export const GM_TECHNICIANS = ['Sajid']; 
+export const GM_TECHNICIANS = ['Sajjad']; 
 
 export const CATEGORY_TECHS: Record<string, string[]> = {
   'ac': TECHNICIANS,

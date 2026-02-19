@@ -35,7 +35,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   
-  // Refactored: Store only the active label to prevent blinking/stale data in modal
   const [activeGroupLabel, setActiveGroupLabel] = useState<string | null>(null);
   
   const [processingInsight, setProcessingInsight] = useState<string | null>(null);
@@ -44,7 +43,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
 
   const parseHubDate = useCallback((dateStr: any) => { if (!dateStr) return null; const d = new Date(dateStr); return isNaN(d.getTime()) ? null : d; }, []);
 
-  // 🔄 LIVE SYNC LOGIC: Force status based on active work orders
   const synchronizedAssets = useMemo(() => {
     return assets.map(a => {
       if (category.id !== 'ac') return a;
@@ -82,7 +80,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     return groups;
   }, [synchronizedAssets]);
 
-  // Derived detail view data based on activeGroupLabel
   const activeDetailData = useMemo(() => {
     if (!activeGroupLabel) return null;
     const label = activeGroupLabel as keyof typeof assetGroups;
@@ -116,7 +113,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     const handled = (stats?.acknowledgedInsights || []) as {tag: string, type: string}[];
     const lifeAlerts = synchronizedAssets.filter(a => !handled.some(h => h.tag === a.tag && h.type.includes('Life')) && a.year && (new Date().getFullYear() - Number(a.year)) >= 5);
     const faultCounts: Record<string, number> = {};
-    tickets.forEach(t => { if(t.assetTag) faultCounts[t.assetTag] = (faultCounts[t.assetTag] || 0) + 1 });
+    tickets.forEach(t => { if(t.assetTag) faultCounts[t.assetTag] = (faultCounts[t.assetTag] || 0) + (Number(t.repeatCount) || 1) });
     const recurring = Object.keys(faultCounts).filter(tag => faultCounts[tag] >= 3).map(tag => synchronizedAssets.find(a => a.tag === tag)).filter((a): a is Asset => !!a && !handled.some(h => h.tag === a.tag && h.type.includes('Recurring')));
     return { lifeAlerts, recurring };
   }, [synchronizedAssets, tickets, stats]);
@@ -223,7 +220,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     if (!historyData.length) return;
     const headers = historyType === 'checklist'
       ? ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Reference', 'Category', 'Frequency']
-      : ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp'];
+      : ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp', 'RepeatCount', 'IssueCategory'];
 
     const csvContent = [
       headers.join(','),
@@ -337,15 +334,28 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
                     </button>
                     {expandedDate === date && (
                       <div className="mt-1.5 p-2 bg-slate-50 rounded-lg grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 animate-slideDown">
-                        {meta.entries.map((e: any, idx: number) => (
-                          <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 shadow-sm">
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="text-[8px] font-black text-indigo-600">{e[3] || e.AssetTag}</span>
-                              <span className={`text-[6px] font-black px-1.5 py-0.5 rounded ${String(e[6]).includes('Resolved') || String(e[6]).includes('Completed') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{resolveStatusLabel(e[6])}</span>
+                        {meta.entries.map((e: any, idx: number) => {
+                          const repeatCount = Number(e[17] || 1);
+                          const issueCat = String(e[18] || 'Manual Entry');
+                          return (
+                            <div key={idx} className="bg-white p-2 rounded-md border border-slate-100 shadow-sm">
+                              <div className="flex justify-between items-center mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[8px] font-black text-indigo-600">{e[3] || e.AssetTag}</span>
+                                  {repeatCount > 1 && (
+                                    <div className="flex items-center gap-1 bg-rose-600 text-white text-[6px] font-black px-1.5 py-0.5 rounded italic animate-pulse shadow-sm">
+                                      <i className="fas fa-redo-alt text-[5px]"></i>
+                                      <span>x{repeatCount}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <span className={`text-[6px] font-black px-1.5 py-0.5 rounded ${String(e[6]).includes('Resolved') || String(e[6]).includes('Completed') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{resolveStatusLabel(e[6])}</span>
+                              </div>
+                              <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1 italic opacity-60">Type: {issueCat}</p>
+                              <p className="text-[8px] font-bold text-slate-400 italic truncate whitespace-pre-wrap">"{e[4]}"</p>
                             </div>
-                            <p className="text-[8px] font-bold text-slate-400 italic truncate mt-1">"{e[4]}"</p>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -404,7 +414,6 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
          <LeaderboardItem category={category.id} performanceLogs={stats?.performanceLogs || []} limit={4} onRefresh={onRefresh} compact={false} />
       </section>
 
-      {/* REFACTORED MODAL: Stable content derived from label */}
       {activeDetailData && (
         <div className="fixed inset-0 bg-slate-950/90 z-[200] p-4 backdrop-blur-md flex items-center justify-center">
           <div className="bg-white w-full max-w-5xl rounded-xl h-[80vh] flex flex-col shadow-2xl overflow-hidden border border-white/10 animate-slideUp">
