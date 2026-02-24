@@ -1,17 +1,17 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Asset, Ticket, AppTab, StatsResponse, FMCategory, GlobalStatsResponse } from './types.ts';
-import { fetchAssets, fetchStats, fetchGlobalStats } from './services/api.ts';
-import { FM_CATEGORIES, TECHNICIANS, ELECTRICAL_TECHNICIANS } from './constants.ts';
-import LandingView from './components/LandingView.tsx';
-import CategoryHubView from './components/CategoryHubView.tsx';
-import DashboardView from './components/DashboardView.tsx';
-import OpsView from './components/OpsView.tsx';
-import TechView from './components/TechView.tsx';
-import ChecklistView from './components/ChecklistView.tsx';
-import GlobalDashboardView from './components/GlobalDashboardView.tsx';
-import NotificationToast from './components/NotificationToast.tsx';
-import SeatingView from './components/SeatingView.tsx';
+import { Asset, Ticket, AppTab, StatsResponse, FMCategory, GlobalStatsResponse } from './types';
+import { fetchAssets, fetchStats, fetchGlobalStats } from './services/api';
+import { FM_CATEGORIES, TECHNICIANS, ELECTRICAL_TECHNICIANS, GM_TECHNICIANS } from './constants';
+import LandingView from './components/LandingView';
+import CategoryHubView from './components/CategoryHubView';
+import DashboardView from './components/DashboardView';
+import OpsView from './components/OpsView';
+import TechView from './components/TechView';
+import ChecklistView from './components/ChecklistView';
+import GlobalDashboardView from './components/GlobalDashboardView';
+import NotificationToast from './components/NotificationToast';
+import SeatingView from './components/SeatingView';
 
 const App: React.FC = () => {
   const [screen, setScreen] = useState<'landing' | 'category-hub' | 'app' | 'checklist' | 'global-dashboard'>('landing');
@@ -40,7 +40,17 @@ const App: React.FC = () => {
     return initial;
   });
 
-  const attendance = currentCategory?.id === 'electrical' ? elecAttendance : acAttendance;
+  const [gmAttendance, setGmAttendance] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    GM_TECHNICIANS.forEach(t => initial[t] = true);
+    return initial;
+  });
+
+  const attendance = currentCategory?.id === 'electrical' 
+    ? elecAttendance 
+    : currentCategory?.id === 'handyman' 
+      ? gmAttendance 
+      : acAttendance;
   
   const lastFetchTime = useRef<number>(0);
   const isFirstLoadRef = useRef(true);
@@ -94,9 +104,13 @@ const App: React.FC = () => {
   }, [refreshData]);
 
   const toggleAttendance = (tech: string) => {
-    const isElec = currentCategory.id === 'electrical';
-    if (isElec) setElecAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
-    else setAcAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
+    if (currentCategory.id === 'electrical') {
+      setElecAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
+    } else if (currentCategory.id === 'handyman') {
+      setGmAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
+    } else {
+      setAcAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
+    }
   };
 
   const handleStartApp = () => { setAudioEnabled(true); setScreen('category-hub'); };

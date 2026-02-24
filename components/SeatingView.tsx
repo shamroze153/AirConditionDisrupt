@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { GlobalStatsResponse, Seat } from '../types.ts';
-import { addOccupancy, updateOccupancy, deleteOccupancy } from '../services/api.ts';
+import { GlobalStatsResponse, Seat } from '../types';
+import { addOccupancy, updateOccupancy, deleteOccupancy } from '../services/api';
 
 interface Props {
   stats: GlobalStatsResponse | null;

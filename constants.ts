@@ -6,7 +6,7 @@ export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw0oRXEFgBn6
 // Swapped Taimoor and Saboor for Zone assignment logic
 export const TECHNICIANS = ['Bilal', 'Asad', 'Saboor', 'Taimoor'];
 export const ELECTRICAL_TECHNICIANS = ['Ibraheem', 'Naveed Ali', 'Haris', 'Owais'];
-export const GM_TECHNICIANS = ['Sajjad']; 
+export const GM_TECHNICIANS = ['Sajid']; 
 
 export const CATEGORY_TECHS: Record<string, string[]> = {
   'ac': TECHNICIANS,

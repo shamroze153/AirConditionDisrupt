@@ -60,30 +60,35 @@ export const postAction = async (formData: FormData): Promise<void> => {
   }
 };
 
+const mapCategory = (cat: CategoryKey): string => {
+  if (cat === 'gm') return 'General Maintenance (GM)';
+  return cat.toUpperCase();
+};
+
 export const rebalanceAssets = async (category: CategoryKey, techs: string[]): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'rebalance_assets');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('techs', techs.join(','));
   await postAction(fd);
 };
 
 export const fetchAssets = async (category: CategoryKey): Promise<Asset[]> => 
-  safeFetch(WEB_APP_URL, { action: 'get_assets', category });
+  safeFetch(WEB_APP_URL, { action: 'get_assets', category: mapCategory(category) });
 
 export const fetchStats = async (category: CategoryKey): Promise<StatsResponse> => 
-  safeFetch(WEB_APP_URL, { action: 'get_stats', category });
+  safeFetch(WEB_APP_URL, { action: 'get_stats', category: mapCategory(category) });
 
 export const fetchGlobalStats = async (): Promise<GlobalStatsResponse> =>
   safeFetch(WEB_APP_URL, { action: 'get_global_stats' });
 
 export const fetchTools = async (category: CategoryKey): Promise<Tool[]> =>
-  safeFetch(WEB_APP_URL, { action: 'get_tools', category });
+  safeFetch(WEB_APP_URL, { action: 'get_tools', category: mapCategory(category) });
 
 export const addTool = async (category: CategoryKey, tool: Tool): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'add_tool');
-  fd.append('category', category);
+  fd.append('category', mapCategory(category));
   fd.append('name', tool.name);
   fd.append('qty', String(tool.qty));
   fd.append('technician', tool.technician || '');
@@ -93,7 +98,7 @@ export const addTool = async (category: CategoryKey, tool: Tool): Promise<void> 
 export const updateTool = async (category: CategoryKey, oldName: string, tool: Tool): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_tool');
-  fd.append('category', category);
+  fd.append('category', mapCategory(category));
   fd.append('oldName', oldName);
   fd.append('name', tool.name);
   fd.append('qty', String(tool.qty));
@@ -104,7 +109,7 @@ export const updateTool = async (category: CategoryKey, oldName: string, tool: T
 export const deleteTool = async (category: CategoryKey, name: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'delete_tool');
-  fd.append('category', category);
+  fd.append('category', mapCategory(category));
   fd.append('name', name);
   await postAction(fd);
 };
@@ -112,7 +117,7 @@ export const deleteTool = async (category: CategoryKey, name: string): Promise<v
 export const updatePoints = async (category: CategoryKey, tech: string, points: number, reason: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_points');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('technician', tech);
   fd.append('points', String(points));
   fd.append('reason', reason);
@@ -122,7 +127,7 @@ export const updatePoints = async (category: CategoryKey, tech: string, points: 
 export const adminReviewTicket = async (category: CategoryKey, tech: string, rowIndex: number, stars: number, points: number, assetTag: string, reviewReason?: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'admin_review_ticket');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('technician', tech);
   fd.append('rowIndex', String(rowIndex));
   fd.append('stars', String(stars));
@@ -135,14 +140,14 @@ export const adminReviewTicket = async (category: CategoryKey, tech: string, row
 export const resetLeaderboard = async (category: CategoryKey): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'reset_leaderboard');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   await postAction(fd);
 };
 
 export const logInsight = async (category: CategoryKey, assetTag: string, insightCategory: string, details: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'log_insight');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('assetTag', assetTag);
   fd.append('insightCategory', insightCategory);
   fd.append('details', details);
@@ -152,7 +157,7 @@ export const logInsight = async (category: CategoryKey, assetTag: string, insigh
 export const updateAssetStatus = async (category: CategoryKey, tag: string, status: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_asset_status');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('tag', tag);
   fd.append('status', status);
   await postAction(fd);
@@ -172,13 +177,13 @@ export const logGasTransaction = async (tx: GasTransaction): Promise<void> => {
 
 export const getReport = async (category: CategoryKey, type: 'checklist' | 'complaint', start: string, end: string): Promise<any[]> => {
   const action = type === 'checklist' ? 'get_checklist_report' : 'get_complaint_report';
-  return await safeFetch(WEB_APP_URL, { action, category, start, end });
+  return await safeFetch(WEB_APP_URL, { action, category: mapCategory(category), start, end });
 };
 
 export const submitDemand = async (category: CategoryKey, tech: string, details: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'submit_demand');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('technician', tech);
   fd.append('details', details);
   fd.append('status', 'Submitted');
@@ -209,7 +214,7 @@ export const deleteOccupancy = async (no: number | string): Promise<void> => {
 export const deductSLAPenalty = async (category: CategoryKey, tech: string, ticketId: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'update_points');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('technician', tech);
   fd.append('points', '-25');
   fd.append('reason', `SLA BREACH: Ticket #${ticketId} open >7 days`);
@@ -219,7 +224,7 @@ export const deductSLAPenalty = async (category: CategoryKey, tech: string, tick
 export const logTakeover = async (category: CategoryKey, originalTech: string, actingTech: string): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'log_insight');
-  fd.append('category', category.toUpperCase());
+  fd.append('category', mapCategory(category));
   fd.append('assetTag', 'TAKEOVER');
   fd.append('insightCategory', 'Absence Management');
   fd.append('details', `[TAKEOVER] Original: ${originalTech}, Acting: ${actingTech}, Reason: Absence`);

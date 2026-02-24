@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
-import { GlobalStatsResponse, Ticket } from '../types.ts';
+import { GlobalStatsResponse, Ticket } from '../types';
 
 interface Props {
   stats: GlobalStatsResponse | null;

@@ -118,7 +118,7 @@ export enum AppTab {
   GLOBAL = 'view-global'
 }
 
-export type CategoryKey = 'ac' | 'electrical' | 'handyman' | 'fleet' | 'valet' | 'reception' | 'office-boy' | 'janitorial' | 'seating';
+export type CategoryKey = 'ac' | 'electrical' | 'gm' | 'fleet' | 'valet' | 'reception' | 'office-boy' | 'janitorial' | 'seating';
 
 export interface FMCategory {
   id: CategoryKey;

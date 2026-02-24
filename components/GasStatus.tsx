@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { StatsResponse } from '../types.ts';
-import { logGasTransaction } from '../services/api.ts';
-import { GAS_TYPES } from '../constants.ts';
+import { StatsResponse } from '../types';
+import { logGasTransaction } from '../services/api';
+import { GAS_TYPES } from '../constants';
 
 interface Props {
   stats: StatsResponse | null;

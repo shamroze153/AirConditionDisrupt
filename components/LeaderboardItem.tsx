@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { PerformanceLogEntry, CategoryKey } from '../types.ts';
-import { CATEGORY_TECHS, MERIT_REASONS, DEMERIT_REASONS } from '../constants.ts';
-import { postAction } from '../services/api.ts';
+import { PerformanceLogEntry, CategoryKey } from '../types';
+import { CATEGORY_TECHS, MERIT_REASONS, DEMERIT_REASONS } from '../constants';
+import { postAction } from '../services/api';
 
 interface Props {
   category: CategoryKey;

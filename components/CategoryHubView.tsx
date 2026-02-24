@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { FM_CATEGORIES, CAMPUS_ROOMS, TECHNICIANS, ELECTRICAL_TECHNICIANS } from '../constants';
+import { FM_CATEGORIES, CAMPUS_ROOMS, TECHNICIANS, ELECTRICAL_TECHNICIANS, GM_TECHNICIANS } from '../constants';
 import { FMCategory, Ticket, Asset } from '../types';
-import { postAction, fetchAssets, updateAssetStatus } from '../services/api.ts';
+import { postAction, fetchAssets, updateAssetStatus } from '../services/api';
 
 interface Props {
   onBack: () => void;
@@ -147,7 +147,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
         finalAssigned = getDynamicAssignee(ELECTRICAL_TECHNICIANS, elecAttendance, 'ELECTRICAL');
       } else if (selectedCat.id === 'handyman') {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
-        finalAssigned = 'Sajid';
+        finalAssigned = GM_TECHNICIANS[0] || 'Sajid';
       } else {
         finalLocation = `${formData.campus} - ${formData.floor} - ${formData.location}`;
       }

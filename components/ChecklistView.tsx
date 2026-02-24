@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types.ts';
-import { ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY, CATEGORY_TECHS } from '../constants.ts';
-import { postAction, updatePoints, updateAssetStatus } from '../services/api.ts';
+import { Asset, ChecklistType, StatsResponse, CategoryKey } from '../types';
+import { ELECTRICAL_MODULE_DATA, EXHAUST_FAN_INVENTORY, CATEGORY_TECHS } from '../constants';
+import { postAction, updatePoints, updateAssetStatus } from '../services/api';
 
 interface Props {
   category: CategoryKey;

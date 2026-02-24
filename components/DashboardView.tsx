@@ -1,10 +1,10 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Asset, Ticket, StatsResponse, FMCategory } from '../types.ts';
-import GasStatus from './GasStatus.tsx';
-import LeaderboardItem from './LeaderboardItem.tsx';
-import { updateAssetStatus, getReport, resetLeaderboard, logInsight } from '../services/api.ts';
-import { ELECTRICAL_MODULE_DATA } from '../constants.ts';
+import { Asset, Ticket, StatsResponse, FMCategory } from '../types';
+import GasStatus from './GasStatus';
+import LeaderboardItem from './LeaderboardItem';
+import { updateAssetStatus, getReport, resetLeaderboard, logInsight } from '../services/api';
+import { ELECTRICAL_MODULE_DATA } from '../constants';
 
 interface Props {
   category: FMCategory;

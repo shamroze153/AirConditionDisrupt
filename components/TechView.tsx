@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Asset, Ticket, StatsResponse, CategoryKey, Tool, MaterialDemand } from '../types.ts';
-import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES } from '../constants.ts';
-import { postAction, fetchTools, updateAssetStatus, updatePoints, logTakeover, submitDemand, addTool, updateTool, deleteTool, logGasTransaction } from '../services/api.ts';
+import { Asset, Ticket, StatsResponse, CategoryKey, Tool, MaterialDemand } from '../types';
+import { CATEGORY_TECHS, DEFAULT_TOOLS, GAS_TYPES } from '../constants';
+import { postAction, fetchTools, updateAssetStatus, updatePoints, logTakeover, submitDemand, addTool, updateTool, deleteTool, logGasTransaction } from '../services/api';
 
 interface Props {
   category: CategoryKey;
@@ -161,8 +161,16 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
 
   const techProfileData = useMemo(() => {
     if (!selectedTech) return { active: [], resolved: [], merit: 0, demerit: 0, compliance: { d: 0, m: 0, q: 0, zone: 0 } };
-    const all = (tickets || []).filter(t => t.assignedTo?.trim().toLowerCase() === selectedTech.trim().toLowerCase());
-    const techLogs = (stats?.performanceLogs || []).filter(l => l.tech === selectedTech && String(l.category || '').toUpperCase() === category.toUpperCase());
+    const all = (tickets || []).filter(t => {
+      const assigned = String(t.assignedTo || '').trim().toLowerCase();
+      const tech = String(t.technician || '').trim().toLowerCase();
+      const target = selectedTech.trim().toLowerCase();
+      return assigned === target || tech === target;
+    });
+    const techLogs = (stats?.performanceLogs || []).filter(l => 
+      String(l.tech || '').trim().toLowerCase() === selectedTech.trim().toLowerCase() && 
+      String(l.category || '').toUpperCase() === category.toUpperCase()
+    );
     const merit = techLogs.filter(l => l.points > 0).reduce((a, b) => a + b.points, 0);
     const demerit = Math.abs(techLogs.filter(l => l.points < 0).reduce((a, b) => a + b.points, 0));
     
