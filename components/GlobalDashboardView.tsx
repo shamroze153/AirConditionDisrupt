@@ -1,6 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { GlobalStatsResponse, Ticket } from '../types';
+import GlobalTechPerformance from './GlobalTechPerformance';
 
 interface Props {
   stats: GlobalStatsResponse | null;
@@ -58,7 +59,8 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
       const reactive = monthly.length - proactive;
       const resolved = monthly.filter(t => {
         const s = String(t.status || '').toLowerCase();
-        return s.includes('resolved') || s.includes('completed');
+        const resBy = String(t.resolvedBy || '').trim();
+        return s.includes('resolved') || s.includes('completed') || resBy !== '';
       });
       const breached = resolved.filter(t => isSlaBreached(t)).length;
       const overdue = monthly.filter(t => {
@@ -211,7 +213,16 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
                 <td className="py-4 px-6">
                   <span className={`text-[8px] font-black px-2 py-0.5 rounded-full italic uppercase ${String(item.status || '').toLowerCase().includes('resolved') || String(item.status || '').toLowerCase().includes('completed') ? 'bg-emerald-50/20 text-emerald-400' : 'bg-rose-50/20 text-rose-400'}`}>{item.status}</span>
                 </td>
-                <td className="py-4 px-6 font-black uppercase text-[10px]">{String(item.resolvedBy || item.assignedTo || 'Unassigned').split('•')[0]}</td>
+                <td className="py-4 px-6 font-black uppercase text-[10px]">
+                  <div className="flex flex-col">
+                    <span>{String(item.resolvedBy || item.assignedTo || 'Unassigned').split('•')[0].trim()}</span>
+                    {(item.resolvedDate || String(item.resolvedBy || '').includes('•')) && (
+                      <span className="text-[7px] text-slate-500 font-bold lowercase italic">
+                        {item.resolvedDate ? `${item.resolvedDate} ${item.resolvedTime}` : String(item.resolvedBy || '').split('•')[1]?.trim()}
+                      </span>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -232,8 +243,16 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[
             { id: 'Launched', label: 'Launched Complaints', val: tickets.length, color: 'indigo', icon: 'file-invoice' },
-            { id: 'Resolved', label: 'Resolved (Final)', val: tickets.filter(t => ['resolved', 'completed'].some(s => String(t.status || '').toLowerCase().includes(s))).length, color: 'emerald', icon: 'check-double' },
-            { id: 'WIP', label: 'Work In Progress (WIP)', val: tickets.filter(t => !['resolved', 'completed'].some(s => String(t.status || '').toLowerCase().includes(s))).length, color: 'amber', icon: 'clock' }
+            { id: 'Resolved', label: 'Resolved (Final)', val: tickets.filter(t => {
+              const s = String(t.status || '').toLowerCase();
+              const resBy = String(t.resolvedBy || '').trim();
+              return s.includes('resolved') || s.includes('completed') || resBy !== '';
+            }).length, color: 'emerald', icon: 'check-double' },
+            { id: 'WIP', label: 'Work In Progress (WIP)', val: tickets.filter(t => {
+              const s = String(t.status || '').toLowerCase();
+              const resBy = String(t.resolvedBy || '').trim();
+              return !s.includes('resolved') && !s.includes('completed') && resBy === '';
+            }).length, color: 'amber', icon: 'clock' }
           ].map(kpi => (
             <button key={kpi.id} onClick={() => { setComplaintDrill(complaintDrill === kpi.id ? null : kpi.id as any); setOMDrill(null); setTechDrill(null); setSeatingDrill(null); }} className={`bg-white p-8 rounded-[2.5rem] border transition-all text-left relative group shadow-sm hover:shadow-xl ${complaintDrill === kpi.id ? 'ring-2 ring-indigo-600' : 'border-slate-100'}`}>
               <div className="flex justify-between items-start mb-6">
@@ -408,6 +427,15 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
            </div>
         </div>
         {techDrill && <DrillDownRegistry type="tickets" />}
+      </section>
+
+      {/* SECTION 5: TECHNICIAN PERFORMANCE & OCCUPANCY */}
+      <section className="space-y-8">
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900">Technician Performance & Occupancy</h2>
+          <div className="h-px flex-1 bg-slate-200"></div>
+        </div>
+        <GlobalTechPerformance stats={stats} />
       </section>
 
       {/* Tooltip implementation remains fixed and non-conditional for React 19 stability */}

@@ -1,9 +1,18 @@
 import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool } from '../types';
 import { WEB_APP_URL } from '../constants';
 
+const cache: Record<string, { data: any, timestamp: number }> = {};
+const CACHE_TTL = 15000; // 15 seconds
+
 const safeFetch = async (baseUrl: string, params: Record<string, string> = {}, options?: RequestInit, retries = 2): Promise<any> => {
   const urlObj = new URL(baseUrl);
   Object.entries(params).forEach(([k, v]) => urlObj.searchParams.append(k, v));
+  
+  const cacheKey = urlObj.toString();
+  if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL) {
+    return cache[cacheKey].data;
+  }
+
   urlObj.searchParams.append('cb', String(Date.now()));
   
   const fetchOptions: RequestInit = {
@@ -17,17 +26,19 @@ const safeFetch = async (baseUrl: string, params: Record<string, string> = {}, o
     if (!response.ok) throw new Error(`HTTP Error: ${response.status} at ${baseUrl}`);
     
     const contentType = response.headers.get("content-type");
+    let data;
     if (contentType && contentType.indexOf("application/json") !== -1) {
-      const json = await response.json();
-      if (json.error) throw new Error(json.error);
-      return json;
+      data = await response.json();
+      if (data.error) throw new Error(data.error);
     } else {
-      const text = await response.text();
-      if (text.includes("<html") && (text.includes("goog-logo") || text.includes("Service Login"))) {
+      data = await response.text();
+      if (data.includes("<html") && (data.includes("goog-logo") || data.includes("Service Login"))) {
         throw new Error("Access Denied: Ensure the Google Script is deployed as 'Anyone'.");
       }
-      return text;
     }
+    
+    cache[cacheKey] = { data, timestamp: Date.now() };
+    return data;
   } catch (error) {
     if (retries > 0) {
       console.warn(`Retrying fetch (${retries} left) for: ${baseUrl}`);
@@ -40,6 +51,9 @@ const safeFetch = async (baseUrl: string, params: Record<string, string> = {}, o
 };
 
 export const postAction = async (formData: FormData): Promise<void> => {
+  // Clear cache to ensure fresh data on next fetch
+  Object.keys(cache).forEach(key => delete cache[key]);
+  
   try {
     const params = new URLSearchParams();
     formData.forEach((value, key) => {
@@ -61,7 +75,7 @@ export const postAction = async (formData: FormData): Promise<void> => {
 };
 
 const mapCategory = (cat: CategoryKey): string => {
-  if (cat === 'gm') return 'General Maintenance (GM)';
+  if (cat === 'handyman') return 'General Maintenance (GM)';
   return cat.toUpperCase();
 };
 
@@ -70,6 +84,12 @@ export const rebalanceAssets = async (category: CategoryKey, techs: string[]): P
   fd.append('action', 'rebalance_assets');
   fd.append('category', mapCategory(category));
   fd.append('techs', techs.join(','));
+  await postAction(fd);
+};
+
+export const standardizeHistoricalData = async (): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'standardize_data');
   await postAction(fd);
 };
 

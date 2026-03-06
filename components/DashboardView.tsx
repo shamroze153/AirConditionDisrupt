@@ -220,7 +220,7 @@ const DashboardView: React.FC<Props> = ({ category, assets, tickets, stats, onRe
     if (!historyData.length) return;
     const headers = historyType === 'checklist'
       ? ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Reference', 'Category', 'Frequency']
-      : ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp', 'RepeatCount', 'IssueCategory'];
+      : ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp', 'RepeatCount', 'IssueCategory', 'ResolvedDate', 'ResolvedTime', 'ResolvedTimestamp (Full)'];
 
     const csvContent = [
       headers.join(','),

@@ -36,6 +36,9 @@ export interface Ticket {
   pointsAwarded?: number;
   adminReviewDate?: string;
   resolutionTimestamp?: string;
+  resolvedDate?: string;
+  resolvedTime?: string;
+  resolvedTimestampFull?: string;
   repeatCount?: number;
 }
 
@@ -96,17 +99,31 @@ export interface HvacStats {
   assetUsage?: Record<string, number>;
 }
 
+export interface ChecklistAuditEntry {
+  timestamp: string;
+  technician: string;
+  assetTag: string;
+  task: string;
+  status: string;
+  remarks: string;
+  reference: string;
+  category: string;
+  frequency: string;
+}
+
 export interface StatsResponse {
   complaints: Ticket[];
   performanceLogs: PerformanceLogEntry[];
   hvac: HvacStats;
-  demands: MaterialDemand[];
+  demands?: MaterialDemand[];
+  checklistAudits?: ChecklistAuditEntry[];
   acknowledgedInsights?: {tag: string, type: string}[];
 }
 
 export interface GlobalStatsResponse {
   allTickets: Ticket[];
   allPerformanceLogs: PerformanceLogEntry[];
+  allChecklistAudits?: ChecklistAuditEntry[];
   proactiveCount?: number;
   seatingData?: Seat[];
 }
@@ -115,10 +132,11 @@ export enum AppTab {
   DASHBOARD = 'view-dashboard',
   OPS = 'view-ops',
   TECH = 'view-tech',
+  PERFORMANCE = 'view-performance',
   GLOBAL = 'view-global'
 }
 
-export type CategoryKey = 'ac' | 'electrical' | 'gm' | 'fleet' | 'valet' | 'reception' | 'office-boy' | 'janitorial' | 'seating';
+export type CategoryKey = 'ac' | 'electrical' | 'handyman' | 'fleet' | 'valet' | 'reception' | 'office-boy' | 'janitorial' | 'seating';
 
 export interface FMCategory {
   id: CategoryKey;

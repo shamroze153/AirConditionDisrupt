@@ -110,6 +110,17 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
   const handleStatusUpdate = async (t: Ticket, newStatus: string) => {
     if (submittingRows.has(t.rowIndex)) return;
     setSubmittingRows(prev => new Set(prev).add(t.rowIndex));
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const resolvedDate = `${dd}/${mm}/${yyyy}`;
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const resolvedTime = `${hh}:${min}:${ss}`;
+    const resolvedTimestampFull = `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}, ${now.getHours() % 12 || 12}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`;
+
     try {
       const fd = new FormData();
       fd.append('rowIndex', String(t.rowIndex));
@@ -118,6 +129,10 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
       fd.append('category', category);
       fd.append('status', newStatus); 
       fd.append('resolvedBy', 'Command Hub');
+      fd.append('resolvedDate', resolvedDate);
+      fd.append('resolvedTime', resolvedTime);
+      fd.append('resolvedTimestampFull', resolvedTimestampFull);
+      fd.append('complaintType', t.complaintType || 'Reactive');
       fd.append('remarks', `Administrative Protocol Override: ${newStatus}`);
       await postAction(fd);
 
@@ -399,6 +414,12 @@ const OpsView: React.FC<Props> = ({ category, assets, tickets, attendance, onRef
                </div>
 
                <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner"><label className="block text-[8px] font-black text-slate-400 uppercase mb-3 ml-1 italic tracking-widest">Narrative</label><textarea value={faultDesc} onChange={e => setFaultDesc(e.target.value)} rows={3} placeholder="Describe anomaly..." className="w-full bg-transparent font-bold text-base outline-none uppercase italic resize-none" /></div>
+               
+               <div className="flex bg-slate-100 p-2 rounded-2xl gap-3">
+                  {['Proactive', 'Reactive'].map(t => (
+                    <button key={t} onClick={() => setComplaintType(t as any)} className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] italic transition-all ${complaintType === t ? 'bg-slate-950 text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>{t}</button>
+                  ))}
+               </div>
             </div>
             <div className="pt-8 shrink-0">{assignmentFeedback ? (<div className="bg-emerald-500 text-white p-6 rounded-2xl text-center animate-bounce shadow-xl"><p className="text-xl font-black italic uppercase">Assigned to {assignmentFeedback}</p></div>) : (<button onClick={handleDispatch} disabled={isSubmitting || !faultDesc.trim() || (category === 'ac' && !foundAsset)} className="w-full bg-slate-950 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.4em] shadow-2xl active:scale-95 italic transition-all disabled:opacity-30">{isSubmitting ? 'Submitting...' : 'Execute Dispatch Protocol'}</button>)}</div>
           </div>

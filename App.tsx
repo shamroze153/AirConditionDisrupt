@@ -10,6 +10,7 @@ import OpsView from './components/OpsView';
 import TechView from './components/TechView';
 import ChecklistView from './components/ChecklistView';
 import GlobalDashboardView from './components/GlobalDashboardView';
+import TechPerformanceDashboard from './components/TechPerformanceDashboard';
 import NotificationToast from './components/NotificationToast';
 import SeatingView from './components/SeatingView';
 
@@ -25,7 +26,7 @@ const App: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [connError, setConnError] = useState<boolean>(false);
+  const [connError, setConnError] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
 
   const [acAttendance, setAcAttendance] = useState<Record<string, boolean>>(() => {
@@ -40,7 +41,7 @@ const App: React.FC = () => {
     return initial;
   });
 
-  const [gmAttendance, setGmAttendance] = useState<Record<string, boolean>>(() => {
+  const [handymanAttendance, setHandymanAttendance] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     GM_TECHNICIANS.forEach(t => initial[t] = true);
     return initial;
@@ -49,7 +50,7 @@ const App: React.FC = () => {
   const attendance = currentCategory?.id === 'electrical' 
     ? elecAttendance 
     : currentCategory?.id === 'handyman' 
-      ? gmAttendance 
+      ? handymanAttendance 
       : acAttendance;
   
   const lastFetchTime = useRef<number>(0);
@@ -89,9 +90,10 @@ const App: React.FC = () => {
         }
         isFirstLoadRef.current = false;
       }
-      setConnError(false);
-    } catch (error) {
-      setConnError(true);
+      setConnError(null);
+    } catch (error: any) {
+      setConnError(error.message || "Connection Interrupted");
+      showToast("Sync Failure: Check Script Deployment");
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +109,7 @@ const App: React.FC = () => {
     if (currentCategory.id === 'electrical') {
       setElecAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
     } else if (currentCategory.id === 'handyman') {
-      setGmAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
+      setHandymanAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
     } else {
       setAcAttendance(prev => ({ ...prev, [tech]: !prev[tech] }));
     }
@@ -125,6 +127,17 @@ const App: React.FC = () => {
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[100] glass-panel px-4 py-1.5 rounded-full shadow-lg border border-indigo-50 flex items-center gap-2 animate-fadeIn">
            <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
            <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">Syncing Hub...</span>
+        </div>
+      )}
+
+      {connError && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] bg-rose-600 text-white px-6 py-3 rounded-2xl shadow-2xl border border-rose-500 flex items-center gap-4 animate-slideUp">
+           <i className="fas fa-exclamation-triangle animate-pulse"></i>
+           <div className="text-left">
+             <p className="text-[8px] font-black uppercase tracking-widest opacity-70 leading-none mb-1">System Link Failure</p>
+             <p className="text-[10px] font-bold italic">{connError}</p>
+           </div>
+           <button onClick={() => refreshData(false)} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all">Retry</button>
         </div>
       )}
 
@@ -155,7 +168,8 @@ const App: React.FC = () => {
                 {[
                   { tab: AppTab.DASHBOARD, icon: 'chart-pie', label: 'Dashboard' },
                   { tab: AppTab.OPS, icon: 'tasks', label: 'Operations' },
-                  { tab: AppTab.TECH, icon: 'user-astronaut', label: 'Tech Era' }
+                  { tab: AppTab.TECH, icon: 'user-astronaut', label: 'Tech Era' },
+                  { tab: AppTab.PERFORMANCE, icon: 'medal', label: 'Performance' }
                 ].map(nav => (
                   <button 
                     key={nav.tab}
@@ -206,6 +220,13 @@ const App: React.FC = () => {
                     showToast={showToast} 
                     onRefresh={() => refreshData(false)} 
                     stats={stats} 
+                  />
+                )}
+                {activeTab === AppTab.PERFORMANCE && (
+                  <TechPerformanceDashboard 
+                    category={currentCategory}
+                    stats={stats}
+                    onRefresh={() => refreshData(false)}
                   />
                 )}
               </>

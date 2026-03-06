@@ -115,6 +115,15 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     if (view === 'tools') loadTools();
   }, [view, category]);
 
+  useEffect(() => {
+    setDemandTech(activeTechList[0] || '');
+    setDemandDetails('');
+    setIssueStep(1);
+    setIssueData({ campus: '', floor: '', assetTag: '', details: '', complaintType: 'Proactive' });
+    setSelectedTech(null);
+    setMultiSelectedTechs([]);
+  }, [category, activeTechList]);
+
   const handleApplyTool = async () => {
     if (!toolFormData.name || !isToolAdminUnlocked) return;
     try {
@@ -221,6 +230,21 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
     setIsResolving(true);
     const solversStr = solvingTechs.join(' & ');
     const now = new Date();
+    
+    // Format Date: DD/MM/YYYY
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const resolvedDate = `${dd}/${mm}/${yyyy}`;
+    
+    // Format Time: HH:MM:SS
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const resolvedTime = `${hh}:${min}:${ss}`;
+    
+    const resolvedTimestampFull = `${now.getMonth() + 1}/${now.getDate()}/${now.getFullYear()}, ${now.getHours() % 12 || 12}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} ${now.getHours() >= 12 ? 'PM' : 'AM'}`;
+
     try {
       if (category === 'ac' && gasUsedYesNo === 'Yes' && Number(gasAmount) > 0) {
         await logGasTransaction({ timestamp: now.toLocaleString(), action: 'USAGE', gasType: selectedGasType, amount: Number(gasAmount), tech: solversStr, refTicket: `WO-${resolveTicket.rowIndex}`, category: 'AC' });
@@ -231,9 +255,13 @@ const TechView: React.FC<Props> = ({ category, attendance, toggleAttendance, tic
       fd.append('rowIndex', String(resolveTicket.rowIndex));
       fd.append('assetTag', resolveTicket.assetTag);
       fd.append('status', 'Resolved – Pending Admin Review');
-      fd.append('resolvedBy', `${solversStr} • ${now.toLocaleString()}`);
+      fd.append('resolvedBy', solversStr);
+      fd.append('resolvedDate', resolvedDate);
+      fd.append('resolvedTime', resolvedTime);
+      fd.append('resolvedTimestampFull', resolvedTimestampFull);
       fd.append('workType', resolveType);
       fd.append('remarks', resolveRemarks);
+      fd.append('complaintType', resolveTicket.complaintType || 'Reactive');
       fd.append('gasUsed', String(gasUsedYesNo === 'Yes' ? gasAmount : 0));
       fd.append('gasType', gasUsedYesNo === 'Yes' ? selectedGasType : '');
       await postAction(fd);

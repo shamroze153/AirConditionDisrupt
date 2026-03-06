@@ -3,7 +3,7 @@
  * DISRUPT_FM_ULTIMATE Backend v24.4 - Strategic Auto-Merge & Analytics Engine
  */
 
-const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE";
+const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE"; // IMPORTANT: Update this ID if using a different spreadsheet
 
 function initializeSheets(ss) {
   if (!ss) {
@@ -17,7 +17,7 @@ function initializeSheets(ss) {
 
   const headers = {
     'Master_Assets': ['ID', 'Tag', 'Room', 'Location', 'Campus', 'Floor', 'Brand', 'Capacity', 'Status', 'Year', 'Health', 'Category', 'AssignedTech'],
-    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'ResolutionTimestamp', 'RepeatCount', 'IssueCategory'],
+    'Work_Orders': ['Timestamp', 'Category', 'Location', 'AssetTag', 'Details', 'AssignedTo', 'Status', 'ResolvedBy', 'ResolvedDate', 'ResolvedTime', 'ResolvedTimestampFull', 'WorkType', 'Remarks', 'GasUsed', 'GasType', 'ComplaintType', 'StarRating', 'PointsAwarded', 'AdminReviewDate', 'RepeatCount', 'IssueCategory'],
     'Checklist_Audit': ['Timestamp', 'Technician', 'AssetTag', 'Task', 'Status', 'Remarks', 'Reference', 'Category', 'Frequency'],
     'Performance_Log': ['Timestamp', 'Technician', 'Points', 'Reason', 'Category'],
     'Material_Demands': ['Timestamp', 'Technician', 'Details', 'Status', 'Category'],
@@ -34,19 +34,21 @@ function initializeSheets(ss) {
       sheet.appendRow(headers[sheetName]);
       sheet.getRange(1, 1, 1, headers[sheetName].length).setFontWeight("bold").setBackground("#f3f3f3");
     } else {
-      const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      // Force header update to fix duplicates and shifting
       const targetHeaders = headers[sheetName];
-      if (currentHeaders.length < targetHeaders.length) {
-        sheet.getRange(1, currentHeaders.length + 1, 1, targetHeaders.length - currentHeaders.length)
-          .setValues([targetHeaders.slice(currentHeaders.length)])
-          .setFontWeight("bold").setBackground("#f3f3f3");
-      }
+      sheet.getRange(1, 1, 1, targetHeaders.length).setValues([targetHeaders]).setFontWeight("bold").setBackground("#f3f3f3");
     }
   });
 }
 
 function doGet(e) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let ss;
+  try {
+    ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  } catch (e) {
+    return createJsonResponse({ error: "Spreadsheet ID invalid or no access: " + SPREADSHEET_ID });
+  }
+  
   initializeSheets(ss);
   const tz = ss.getSpreadsheetTimeZone();
   
@@ -54,26 +56,35 @@ function doGet(e) {
   const action = String(params.action || '').toLowerCase().trim();
   const category = (params.category || 'AC').toUpperCase().trim();
   
+  const cache = CacheService.getScriptCache();
+  const cacheKey = action + "_" + category;
+  
+  if (['get_stats', 'get_global_stats', 'get_tools', 'get_assets'].includes(action)) {
+    const cached = cache.get(cacheKey);
+    if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+  }
+
   try {
+    let responseData;
     switch(action) {
       case 'get_tools':
-        const toolData = getSheetData(ss, 'Master_Tools');
-        const filteredTools = toolData.filter(r => String(r[0]).toUpperCase() === category);
-        return createJsonResponse(filteredTools.map(r => ({ 
+        const toolData = getFilteredSheetData(ss, 'Master_Tools', 0, category);
+        responseData = toolData.map(r => ({ 
           category: String(r[0] || '').trim(), 
           name: String(r[1] || '').trim(), 
           qty: Number(r[2]), 
           technician: String(r[3] || '').trim() 
-        })));
+        }));
+        break;
 
       case 'get_assets':
-        const assetData = getSheetData(ss, 'Master_Assets');
-        const filteredAssets = assetData.filter(row => String(row[11] || '').toUpperCase() === category);
-        return createJsonResponse(filteredAssets.map(row => ({
+        const assetData = getFilteredSheetData(ss, 'Master_Assets', 11, category);
+        responseData = assetData.map(row => ({
           id: row[0], tag: String(row[1] || '').trim(), room: String(row[2] || '').trim(), location: String(row[3] || '').trim(), campus: String(row[4] || '').trim(),
           floor: String(row[5] || '').trim(), brand: String(row[6] || '').trim(), cap: row[7], status: String(row[8] || '').trim(), year: row[9],
           healthScore: row[10] || 100, category: String(row[11] || '').trim(), assignedTech: String(row[12] || '').trim()
-        })));
+        }));
+        break;
 
       case 'get_stats':
         const now = new Date();
@@ -81,62 +92,84 @@ function doGet(e) {
         const thisMonth = now.getMonth();
         const thisYear = now.getFullYear();
 
-        const complaints = getSheetData(ss, 'Work_Orders')
-          .map((row, idx) => ({
-            rowIndex: idx + 2, date: row[0], category: String(row[1] || '').trim(), location: String(row[2] || '').trim(),
-            assetTag: String(row[3] || '').trim(), details: String(row[4] || '').trim(), assignedTo: String(row[5] || '').trim(), status: String(row[6] || '').trim(),
-            resolvedBy: String(row[7] || '').trim(), workType: String(row[8] || '').trim(), remarks: String(row[9] || '').trim(), gasUsed: row[10], gasType: String(row[11] || '').trim(),
-            complaintType: row[12] || 'Reactive',
-            starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
-            resolutionTimestamp: row[16],
-            repeatCount: row[17] || 1,
-            issueCategory: String(row[18] || 'Unclassified').trim()
-          }))
-          .filter(t => String(t.category).toUpperCase() === category);
+        const complaints = getFilteredSheetData(ss, 'Work_Orders', 1, category)
+          .map((row) => {
+            const res = standardizeRowResolution(row, tz);
+            return {
+              rowIndex: row[row.length - 1], 
+              date: row[0], 
+              category: String(row[1] || '').trim(), 
+              location: String(row[2] || '').trim(),
+              assetTag: String(row[3] || '').trim(), 
+              details: String(row[4] || '').trim(), 
+              assignedTo: String(row[5] || '').trim(), 
+              status: String(row[6] || '').trim(),
+              resolvedBy: res.resolvedBy,
+              resolvedDate: res.resolvedDate,
+              resolvedTime: res.resolvedTime,
+              resolvedTimestampFull: res.resolvedTimestampFull,
+              workType: String(row[11] || '').trim(),
+              remarks: String(row[12] || '').trim(),
+              gasUsed: row[13],
+              gasType: String(row[14] || '').trim(),
+              complaintType: row[15] || 'Reactive',
+              starRating: row[16],
+              pointsAwarded: row[17],
+              adminReviewDate: row[18],
+              repeatCount: row[19] || 1,
+              issueCategory: String(row[20] || 'Unclassified').trim(),
+              resolutionTimestamp: res.resolvedTimestampFull
+            };
+          });
         
-        const checkData = getSheetData(ss, 'Checklist_Audit');
+        const checkDataRaw = getFilteredSheetData(ss, 'Checklist_Audit', 7, category);
+        const checklistAudits = checkDataRaw.map(r => ({
+          timestamp: r[0],
+          technician: String(r[1] || '').trim(),
+          assetTag: String(r[2] || '').trim(),
+          task: String(r[3] || '').trim(),
+          status: String(r[4] || '').trim(),
+          remarks: String(r[5] || '').trim(),
+          reference: String(r[6] || '').trim(),
+          category: String(r[7] || '').trim(),
+          frequency: String(r[8] || '').trim()
+        }));
+
         const dailyComp = [];
         const monthlyComp = [];
         const quarterlyComp = [];
 
-        checkData.forEach(r => {
+        checkDataRaw.forEach(r => {
           if (!r[0]) return; 
           const rDate = new Date(r[0]);
           const rDateStr = Utilities.formatDate(rDate, tz, "yyyy-MM-dd");
-          const rCat = String(r[7] || '').toUpperCase().trim();
           const rFreq = String(r[8] || 'Daily').trim();
           const rTag = String(r[2] || '').trim();
-          if (rCat !== category) return;
-          if (!rTag) return;
           
           if (rFreq === 'Daily' && rDateStr === todayStr) dailyComp.push(rTag);
           if (rFreq === 'Monthly' && rDate.getMonth() === thisMonth && rDate.getFullYear() === thisYear) monthlyComp.push(rTag);
           if (rFreq === 'Quarterly' && Math.floor(rDate.getMonth() / 3) === Math.floor(thisMonth / 3) && rDate.getFullYear() === thisYear) quarterlyComp.push(rTag);
         });
 
-        const ptLogs = getSheetData(ss, 'Performance_Log')
-          .filter(r => String(r[4] || '').toUpperCase().trim() === category)
+        const ptLogs = getFilteredSheetData(ss, 'Performance_Log', 4, category)
           .map(r => ({ Timestamp: r[0], tech: String(r[1] || '').trim(), points: Number(r[2]), reason: String(r[3] || '').trim(), category: String(r[4] || '').trim() }));
 
         const operationalAssetMap = {};
-        getSheetData(ss, 'Master_Assets').forEach(r => {
-          if (String(r[11]).toUpperCase().trim() === category) {
-             const status = String(r[8]).trim().toUpperCase();
-             if (status === 'ACTIVE' || status === 'MAINTENANCE') operationalAssetMap[String(r[1]).trim().toUpperCase()] = true;
-          }
+        getFilteredSheetData(ss, 'Master_Assets', 11, category).forEach(r => {
+           const status = String(r[8]).trim().toUpperCase();
+           if (status === 'ACTIVE' || status === 'MAINTENANCE') operationalAssetMap[String(r[1]).trim().toUpperCase()] = true;
         });
 
         let gStocks = {};
         let assetUsage = {};
-        getSheetData(ss, 'Gas_Ledger').forEach(row => {
+        getFilteredSheetData(ss, 'Gas_Ledger', 6, category).forEach(row => {
           const actionType = String(row[1] || '').toUpperCase().trim();
           const gasType = String(row[2] || '').trim();
           const amount = Number(row[3]) || 0;
-          const ledgerCat = String(row[6] || '').toUpperCase().trim();
 
           if (gasType) gStocks[gasType] = (gStocks[gasType] || 0) + amount;
 
-          if (actionType === 'USAGE' && ledgerCat === category) {
+          if (actionType === 'USAGE') {
             const tag = String(row[5] || '').trim().toUpperCase();
             if (operationalAssetMap[tag]) {
               assetUsage[tag] = (assetUsage[tag] || 0) + Math.abs(amount);
@@ -144,13 +177,17 @@ function doGet(e) {
           }
         });
 
-        const insightData = getSheetData(ss, 'System_Insights')
-          .filter(r => String(r[1] || '').toUpperCase().trim() === category)
+        const insightData = getFilteredSheetData(ss, 'System_Insights', 1, category)
           .map(r => ({ tag: String(r[2] || '').trim(), type: String(r[3] || '').trim() }));
 
-        return createJsonResponse({ 
+        const demands = getFilteredSheetData(ss, 'Material_Demands', 4, category)
+          .map(r => ({ timestamp: r[0], technician: String(r[1] || '').trim(), details: String(r[2] || '').trim(), status: String(r[3] || '').trim(), category: String(r[4] || '').trim() }));
+
+        responseData = { 
           complaints, 
           performanceLogs: ptLogs, 
+          checklistAudits,
+          demands,
           hvac: { 
             daily: dailyComp, 
             monthly: monthlyComp, 
@@ -159,51 +196,91 @@ function doGet(e) {
             assetUsage: assetUsage
           },
           acknowledgedInsights: insightData
-        });
+        };
+        break;
 
       case 'get_global_stats':
-        const allTickets = getSheetData(ss, 'Work_Orders').map((row, idx) => ({
-          rowIndex: idx + 2, date: row[0], category: String(row[1] || '').trim(), location: String(row[2] || '').trim(),
-          assetTag: String(row[3] || '').trim(), details: String(row[4] || '').trim(), assignedTo: String(row[5] || '').trim(), status: String(row[6] || '').trim(),
-          resolvedBy: String(row[7] || '').trim(), workType: String(row[8] || '').trim(), remarks: String(row[9] || '').trim(), gasUsed: row[10], gasType: String(row[11] || '').trim(),
-          complaintType: row[12] || 'Reactive',
-          starRating: row[13], pointsAwarded: row[14], adminReviewDate: row[15],
-          resolutionTimestamp: row[16],
-          repeatCount: row[17] || 1,
-          issueCategory: String(row[18] || 'Unclassified').trim()
-        }));
+        const allTickets = getSheetData(ss, 'Work_Orders').map((row) => {
+          const res = standardizeRowResolution(row, tz);
+          return {
+            rowIndex: row[row.length - 1], 
+            date: row[0], 
+            category: String(row[1] || '').trim(), 
+            location: String(row[2] || '').trim(),
+            assetTag: String(row[3] || '').trim(), 
+            details: String(row[4] || '').trim(), 
+            assignedTo: String(row[5] || '').trim(), 
+            status: String(row[6] || '').trim(),
+            resolvedBy: res.resolvedBy,
+            resolvedDate: res.resolvedDate,
+            resolvedTime: res.resolvedTime,
+            resolvedTimestampFull: res.resolvedTimestampFull,
+            workType: String(row[11] || '').trim(),
+            complaintType: row[15] || 'Reactive',
+            adminReviewDate: row[18],
+            resolutionTimestamp: res.resolvedTimestampFull
+          };
+        });
         const allLogs = getSheetData(ss, 'Performance_Log').map(r => ({ Timestamp: r[0], tech: String(r[1] || '').trim(), points: Number(r[2]), reason: String(r[3] || '').trim(), category: String(r[4] || '').trim() }));
+        const allChecklistAudits = getSheetData(ss, 'Checklist_Audit').map(r => ({
+          timestamp: r[0],
+          technician: String(r[1] || '').trim(),
+          assetTag: String(r[2] || '').trim(),
+          task: String(r[3] || '').trim(),
+          status: String(r[4] || '').trim(),
+          remarks: String(r[5] || '').trim(),
+          reference: String(r[6] || '').trim(),
+          category: String(r[7] || '').trim(),
+          frequency: String(r[8] || '').trim()
+        }));
         const seatingData = getSheetData(ss, 'Seating_Plan').map(row => ({
           no: row[0], location: String(row[1] || '').trim(), campusCode: String(row[2] || '').trim(), floorTag: String(row[3] || '').trim(), roomTag: String(row[4] || '').trim(),
           stationTag: String(row[5] || '').trim(), empName: String(row[6] || '').trim(), empCode: String(row[7] || '').trim(), empType: String(row[8] || '').trim(), roomCode: String(row[9] || '').trim(),
           roomCodeDashboard: String(row[10] || '').trim(), seatCode: String(row[11] || '').trim(), bu: String(row[12] || '').trim(), department: String(row[13] || '').trim(),
           category: String(row[14] || '').trim(), status: String(row[15] || '').trim(), snapshotDate: String(row[16] || '').trim(), finalDept: String(row[17] || '').trim()
         }));
-        return createJsonResponse({ allTickets, allPerformanceLogs: allLogs, seatingData });
+        responseData = { allTickets, allPerformanceLogs: allLogs, allChecklistAudits, seatingData };
+        break;
 
       case 'get_checklist_report':
         const rawCheck = getSheetData(ss, 'Checklist_Audit');
-        return createJsonResponse(rawCheck.filter(r => String(r[7]).toUpperCase().trim() === category));
+        responseData = rawCheck.filter(r => String(r[7]).toUpperCase().trim() === category);
+        break;
 
       case 'get_complaint_report':
         const rawComplaints = getSheetData(ss, 'Work_Orders');
-        return createJsonResponse(rawComplaints.filter(r => String(r[1]).toUpperCase().trim() === category));
+        responseData = rawComplaints.filter(r => String(r[1]).toUpperCase().trim() === category);
+        break;
 
       default:
         return createJsonResponse({ error: "Action Unknown: " + action });
     }
+    return createJsonResponse(responseData, cacheKey);
   } catch (err) {
     return createJsonResponse({ error: err.toString() });
   }
 }
 
 function doPost(e) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let ss;
+  try {
+    ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  } catch (e) {
+    return ContentService.createTextOutput("POST_ERROR: Spreadsheet ID invalid or no access: " + SPREADSHEET_ID);
+  }
+  
   initializeSheets(ss);
   
   const params = e && e.parameter ? e.parameter : {};
   const action = String(params.action || '').toLowerCase().trim();
   const category = (params.category || 'AC').toUpperCase().trim();
+
+  // Invalidate cache on any write
+  const cache = CacheService.getScriptCache();
+  cache.remove("get_stats_" + category);
+  cache.remove("get_global_stats_AC"); // Invalidate global cache too
+  cache.remove("get_assets_" + category);
+  cache.remove("get_tools_" + category);
 
   try {
     switch(action) {
@@ -278,17 +355,34 @@ function doPost(e) {
         const rowIndexRes = Number(params.rowIndex);
         if (!rowIndexRes) break;
 
-        woSheetRes.getRange(rowIndexRes, 7, 1, 11).setValues([[
+        // Standardize incoming data formats if needed
+        let resBy = String(params.resolvedBy || '').trim();
+        let resDate = String(params.resolvedDate || '').trim();
+        let resTime = String(params.resolvedTime || '').trim();
+        let resFull = String(params.resolvedTimestampFull || '').trim();
+
+        // Update strict resolution block (Col 7 to 15)
+        // 7:Status, 8:ResolvedBy, 9:ResolvedDate, 10:ResolvedTime, 11:ResolvedTimestampFull, 12:WorkType, 13:Remarks, 14:GasUsed, 15:GasType
+        woSheetRes.getRange(rowIndexRes, 7, 1, 9).setValues([[
           String(params.status || '').trim(), 
-          String(params.resolvedBy || '').trim(), 
+          resBy, 
+          resDate,
+          resTime,
+          resFull,
           String(params.workType || '').trim(), 
           String(params.remarks || '').trim(), 
           params.gasUsed || 0, 
-          String(params.gasType || '').trim(),
-          String(params.complaintType || '').trim(),
-          '', '', '',
-          new Date()
+          String(params.gasType || '').trim()
         ]]);
+        
+        // Only update ComplaintType if explicitly provided
+        if (params.complaintType) {
+          woSheetRes.getRange(rowIndexRes, 16).setValue(String(params.complaintType).trim());
+        }
+        break;
+
+      case 'standardize_data':
+        standardizeWorkOrders(ss);
         break;
 
       case 'admin_review_ticket':
@@ -303,16 +397,17 @@ function doPost(e) {
         const reviewReason = String(params.reviewReason || '').trim();
         
         woSheetRev.getRange(rowIndexRev, 7).setValue('Completed');
-        woSheetRev.getRange(rowIndexRev, 14, 1, 3).setValues([[
+        // 17:StarRating, 18:PointsAwarded, 19:AdminReviewDate
+        woSheetRev.getRange(rowIndexRev, 17, 1, 3).setValues([[
           stars, 
           points, 
           new Date()
         ]]);
 
         if (reviewReason) {
-           const currentRemarks = woSheetRev.getRange(rowIndexRev, 10).getValue();
+           const currentRemarks = woSheetRev.getRange(rowIndexRev, 13).getValue(); // Col 13 is Remarks
            const updatedRemarks = currentRemarks ? currentRemarks + " | REVIEW: " + reviewReason : "REVIEW: " + reviewReason;
-           woSheetRev.getRange(rowIndexRev, 10).setValue(updatedRemarks);
+           woSheetRev.getRange(rowIndexRev, 13).setValue(updatedRemarks);
         }
 
         const techList = multiTechStr.split(',').map(t => t.trim()).filter(Boolean);
@@ -375,7 +470,7 @@ function doPost(e) {
 
         if (existingRowIdx !== -1) {
           // MERGE PROTOCOL: Increment Repeat_Count and Update Last Reported Activity
-          const currentRepeatCount = Number(woDataC[existingRowIdx - 1][17] || 1);
+          const currentRepeatCount = Number(woDataC[existingRowIdx - 1][19] || 1); // Col 20 is RepeatCount
           const currentDetails = String(woDataC[existingRowIdx - 1][4] || '');
           const newRepeatCount = currentRepeatCount + 1;
           const timestampLabel = Utilities.formatDate(cNow, ss.getSpreadsheetTimeZone(), "MMM dd, HH:mm");
@@ -383,10 +478,10 @@ function doPost(e) {
           
           woSheetC.getRange(existingRowIdx, 5).setValue(mergedDetails);
           woSheetC.getRange(existingRowIdx, 7).setValue('Open'); // Ensure it remains/becomes visible as Open
-          woSheetC.getRange(existingRowIdx, 18).setValue(newRepeatCount);
+          woSheetC.getRange(existingRowIdx, 20).setValue(newRepeatCount); // Col 20
           woSheetC.getRange(existingRowIdx, 1).setValue(cNow); // Update Timestamp to reflect "Last Reported Date"
         } else {
-          // NEW ENTRY: Create fresh Work Order
+          // NEW ENTRY: Create fresh Work Order (21 columns)
           woSheetC.appendRow([
             cNow, 
             cCategory, 
@@ -395,9 +490,9 @@ function doPost(e) {
             cDetails, 
             String(params.assignedTech || 'Unassigned').trim(), 
             String(params.status || 'Open').trim(), 
-            '', '', '', 0, '', 
+            '', '', '', '', '', '', 0, '', 
             String(params.complaintType || 'Reactive').trim(),
-            '', '', '', '', 1, 
+            '', '', '', 1, 
             cIssueCategory
           ]);
         }
@@ -495,15 +590,182 @@ function doPost(e) {
   }
 }
 
+function standardizeWorkOrders(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Work_Orders');
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return;
+  const headers = data[0];
+  
+  const hIdx = headers.indexOf('ResolvedBy');
+  const iIdx = headers.indexOf('ResolvedDate');
+  const jIdx = headers.indexOf('ResolvedTime');
+  const kIdx = headers.indexOf('ResolvedTimestampFull');
+  const aIdx = headers.indexOf('Timestamp');
+  
+  if (hIdx === -1 || iIdx === -1 || jIdx === -1 || kIdx === -1) return;
+
+  const tz = ss.getSpreadsheetTimeZone();
+  const updates = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    let resolvedBy = String(data[i][hIdx] || '').trim();
+    let resolvedDate = data[i][iIdx];
+    let resolvedTime = data[i][jIdx];
+    let resolvedTimestampFull = data[i][kIdx];
+    const timestamp = data[i][aIdx];
+
+    // 1. Extract from format "Name • DD/MM/YYYY, HH:MM:SS"
+    if (resolvedBy.includes('•')) {
+      const parts = resolvedBy.split('•');
+      resolvedBy = parts[0].trim();
+      const dateTimePart = parts[1].trim(); 
+      const dtParts = dateTimePart.split(',');
+      if (dtParts.length === 2) {
+        resolvedDate = dtParts[0].trim();
+        resolvedTime = dtParts[1].trim();
+      }
+    }
+
+    // 2. Fallback for ResolvedDate if missing or invalid (1899 check)
+    const isInvalidDate = (d) => {
+      if (!d || d === "") return true;
+      const dStr = d.toString();
+      return dStr.includes("1899") || dStr === "Sat Dec 30 1899 00:00:00 GMT+0500 (Pakistan Standard Time)";
+    };
+
+    if (isInvalidDate(resolvedDate)) {
+      if (timestamp) {
+        resolvedDate = Utilities.formatDate(new Date(timestamp), tz, "dd/MM/yyyy");
+      }
+    }
+
+    // 3. Ensure proper date/time strings for the sheet
+    if (resolvedDate instanceof Date) {
+      resolvedDate = Utilities.formatDate(resolvedDate, tz, "dd/MM/yyyy");
+    }
+    if (resolvedTime instanceof Date) {
+      resolvedTime = Utilities.formatDate(resolvedTime, tz, "HH:mm:ss");
+    }
+
+    // 4. Standardize ResolvedTimestampFull: M/d/yyyy, h:mm:ss a
+    if (resolvedDate && resolvedTime) {
+      try {
+        const dParts = String(resolvedDate).split('/');
+        const tParts = String(resolvedTime).split(':');
+        if (dParts.length === 3 && tParts.length === 3) {
+           // Assume DD/MM/YYYY
+           const dObj = new Date(dParts[2], dParts[1]-1, dParts[0], tParts[0], tParts[1], tParts[2]);
+           resolvedTimestampFull = Utilities.formatDate(dObj, tz, "M/d/yyyy, h:mm:ss a");
+        }
+      } catch(e) {
+        resolvedTimestampFull = resolvedDate + ", " + resolvedTime;
+      }
+    }
+
+    updates.push([resolvedBy, resolvedDate, resolvedTime, resolvedTimestampFull]);
+  }
+
+  if (updates.length > 0) {
+    sheet.getRange(2, hIdx + 1, updates.length, 4).setValues(updates);
+  }
+}
+
+function standardizeRowResolution(row, tz) {
+  let resBy = String(row[7] || '').trim();
+  let resDate = row[8];
+  let resTime = row[9];
+  let resFull = row[10];
+
+  // If resFull is empty, try to extract from resBy (Old Format)
+  if (!resFull || String(resFull).trim() === "") {
+    const bulletMatch = resBy.match(/[•·\-\|]/);
+    if (bulletMatch) {
+      const bullet = bulletMatch[0];
+      const parts = resBy.split(bullet);
+      resBy = parts[0].trim();
+      const dateTimePart = (parts[1] || '').trim();
+      resFull = dateTimePart;
+      const dtParts = dateTimePart.split(',');
+      if (dtParts.length >= 2) {
+        resDate = dtParts[0].trim();
+        resTime = dtParts[1].trim();
+      } else {
+        resDate = dateTimePart;
+      }
+    }
+  }
+
+  // Ensure they are strings for the API response
+  if (resDate instanceof Date) resDate = Utilities.formatDate(resDate, tz, "dd/MM/yyyy");
+  if (resTime instanceof Date) resTime = Utilities.formatDate(resTime, tz, "HH:mm:ss");
+  if (resFull instanceof Date) resFull = Utilities.formatDate(resFull, tz, "M/d/yyyy, h:mm:ss a");
+  
+  return { 
+    resolvedBy: String(resBy || '').trim(), 
+    resolvedDate: String(resDate || '').trim(), 
+    resolvedTime: String(resTime || '').trim(), 
+    resolvedTimestampFull: String(resFull || '').trim() 
+  };
+}
+
 function getSheetData(ss, name) {
   const sheet = ss.getSheetByName(name);
   if (!sheet) return [];
-  const range = sheet.getDataRange();
-  const values = range.getValues();
+  const values = sheet.getDataRange().getValues();
   if (values.length <= 1) return [];
-  return values.slice(1).filter(row => row[0] && String(row[0]).trim() !== "");
+  const filtered = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (row[0] && String(row[0]).trim() !== "") {
+      row.push(i + 1); // Original row index
+      filtered.push(row);
+    }
+  }
+  return filtered;
 }
 
-function createJsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+function getFilteredSheetData(ss, sheetName, categoryIndex, categoryValue) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+  const values = sheet.getDataRange().getValues();
+  if (values.length <= 1) return [];
+  
+  const filtered = [];
+  let targetCat = String(categoryValue || '').toUpperCase().trim();
+  
+  // Normalize targetCat if it's the long name from api.ts
+  if (targetCat === 'GENERAL MAINTENANCE (GM)') targetCat = 'HANDYMAN';
+  
+  // Define aliases for flexible filtering
+  const aliases = {
+    'HANDYMAN': ['HANDYMAN', 'GM', 'GENERAL MAINTENANCE', 'GENERAL-MAINTENANCE', 'PLUMBING'],
+    'AC': ['AC', 'HVAC', 'AC (HVAC)'],
+    'ELECTRICAL': ['ELECTRICAL', 'ELECTRIC']
+  };
+
+  const allowedCats = aliases[targetCat] || [targetCat];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    
+    const rowCat = String(row[categoryIndex] || '').toUpperCase().trim();
+    if (categoryIndex === -1 || allowedCats.includes(rowCat)) {
+      row.push(i + 1); // Original row index
+      filtered.push(row);
+    }
+  }
+  return filtered;
+}
+
+function createJsonResponse(data, cacheKey) {
+  const json = JSON.stringify(data);
+  if (cacheKey) {
+    try {
+      CacheService.getScriptCache().put(cacheKey, json, 30);
+    } catch (e) {}
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }

@@ -411,6 +411,12 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                        <textarea value={formData.details} onChange={(e) => setFormData({ ...formData, details: e.target.value })} rows={3} className="w-full bg-transparent font-bold text-xs md:text-base text-slate-900 outline-none italic uppercase resize-none placeholder:text-slate-200 leading-relaxed" placeholder="Describe the findings..." />
                     </div>
 
+                    <div className="flex bg-slate-100 p-2 rounded-2xl gap-3">
+                       {['Proactive', 'Reactive'].map(t => (
+                         <button key={t} onClick={() => setFormData({...formData, complaintType: t as any})} className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] italic transition-all ${formData.complaintType === t ? 'bg-slate-950 text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}>{t}</button>
+                       ))}
+                    </div>
+
                     <button onClick={() => setFormData({...formData, immediateResolve: !formData.immediateResolve})} className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center justify-between group ${formData.immediateResolve ? 'bg-emerald-600 border-emerald-600 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                        <div className="flex items-center gap-4">
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-inner ${formData.immediateResolve ? 'bg-white/20' : 'bg-white'}`}><i className={`fas fa-check-double text-sm ${formData.immediateResolve ? 'text-white' : 'text-slate-200'}`}></i></div>
