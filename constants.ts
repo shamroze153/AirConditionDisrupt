@@ -113,11 +113,7 @@ export const FM_CATEGORIES: FMCategory[] = [
   { id: 'electrical', name: 'Electrical', group: 'Hard FM', icon: 'bolt', color: 'amber' },
   { id: 'handyman', name: 'General Maintenance (GM)', group: 'Hard FM', icon: 'hammer', color: 'orange' },
   { id: 'seating', name: 'Seating Occupancy', group: 'Soft FM', icon: 'chair', color: 'teal' },
-  { id: 'fleet', name: 'Fleet', group: 'Soft FM', icon: 'car', color: 'slate' },
   { id: 'valet', name: 'Valet', group: 'Soft FM', icon: 'key', color: 'blue' },
-  { id: 'reception', name: 'Receptionist', group: 'Soft FM', icon: 'user-tie', color: 'purple' },
-  { id: 'office-boy', name: 'Office Boy', group: 'Soft FM', icon: 'mug-hot', color: 'emerald' },
-  { id: 'janitorial', name: 'Janitorial', group: 'Soft FM', icon: 'broom', color: 'teal' },
 ];
 
 export const MERIT_REASONS = [
