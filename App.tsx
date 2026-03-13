@@ -13,6 +13,7 @@ import GlobalDashboardView from './components/GlobalDashboardView';
 import TechPerformanceDashboard from './components/TechPerformanceDashboard';
 import NotificationToast from './components/NotificationToast';
 import SeatingView from './components/SeatingView';
+import { ValetView } from './components/ValetView';
 
 const App: React.FC = () => {
   const [screen, setScreen] = useState<'landing' | 'category-hub' | 'app' | 'checklist' | 'global-dashboard'>('landing');
@@ -162,7 +163,7 @@ const App: React.FC = () => {
             color={currentCategory.color}
           />
           
-          {currentCategory.id !== 'seating' && (
+          {currentCategory.id !== 'seating' && currentCategory.id !== 'valet' && (
             <div className="bg-white px-4 md:px-6 py-2 border-b border-slate-100 sticky top-[60px] md:top-[68px] z-40 shadow-sm">
               <div className="max-w-[1400px] mx-auto flex bg-slate-50 p-1 rounded-xl gap-1">
                 {[
@@ -187,6 +188,8 @@ const App: React.FC = () => {
           <div className="flex-1 overflow-y-auto hide-scroll pb-20">
             {currentCategory.id === 'seating' ? (
               <SeatingView stats={globalStats} onRefresh={() => refreshData(false)} />
+            ) : currentCategory.id === 'valet' ? (
+              <ValetView />
             ) : (
               <>
                 {activeTab === AppTab.DASHBOARD && (

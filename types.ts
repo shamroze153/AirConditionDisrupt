@@ -158,3 +158,17 @@ export interface Tool {
   qty: number;
   technician?: string;
 }
+
+export interface ValetLogEntry {
+  timestampIn: string;
+  date: string;
+  carNumber: string;
+  cardNumber: string;
+  parkingSlot: string;
+  driverIn: string;
+  timestampOut: string;
+  driverOut: string;
+  status: string;
+  remarks: string;
+  rowIndex?: number;
+}

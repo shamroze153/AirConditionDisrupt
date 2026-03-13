@@ -1,4 +1,4 @@
-import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool } from '../types';
+import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool, ValetLogEntry } from '../types';
 import { WEB_APP_URL } from '../constants';
 
 const cache: Record<string, { data: any, timestamp: number }> = {};
@@ -248,5 +248,27 @@ export const logTakeover = async (category: CategoryKey, originalTech: string, a
   fd.append('assetTag', 'TAKEOVER');
   fd.append('insightCategory', 'Absence Management');
   fd.append('details', `[TAKEOVER] Original: ${originalTech}, Acting: ${actingTech}, Reason: Absence`);
+  await postAction(fd);
+};
+
+export const fetchValetData = async (): Promise<ValetLogEntry[]> =>
+  safeFetch(WEB_APP_URL, { action: 'get_valet_data' });
+
+export const logValetAction = async (data: {
+  carNumber: string;
+  cardNumber?: string;
+  parkingSlot?: string;
+  valetAction: 'Drive IN' | 'Drive OUT';
+  driver: string;
+  remarks?: string;
+}): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'valet_action');
+  fd.append('carNumber', data.carNumber);
+  fd.append('cardNumber', data.cardNumber || '');
+  fd.append('parkingSlot', data.parkingSlot || '');
+  fd.append('valetAction', data.valetAction);
+  fd.append('driver', data.driver);
+  fd.append('remarks', data.remarks || '');
   await postAction(fd);
 };

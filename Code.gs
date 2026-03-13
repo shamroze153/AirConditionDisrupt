@@ -24,7 +24,8 @@ function initializeSheets(ss) {
     'Gas_Ledger': ['Timestamp', 'ActionType', 'GasType', 'Amount', 'Technician', 'Reference', 'Category'],
     'System_Insights': ['Timestamp', 'Category', 'AssetTag', 'InsightType', 'Details'],
     'Seating_Plan': ['No', 'location', 'Campus Code', 'Floor Tag', 'Room No. Tag', 'Work Station Tag', 'Emp Name', 'Emp Code', 'Type of Employee', 'Room Code', 'Room Code - Dashboard', 'Seat Code', 'BU', 'Department', 'Category', 'Status', 'snapshot_date', 'FINAL-DEPT'],
-    'Master_Tools': ['Category', 'Name', 'Quantity', 'Technician']
+    'Master_Tools': ['Category', 'Name', 'Quantity', 'Technician'],
+    'Valet_Log': ['Timestamp_IN', 'Date', 'CarNumber', 'CardNumber', 'ParkingSlot', 'Driver_IN', 'Timestamp_OUT', 'Driver_OUT', 'Status', 'Remarks']
   };
 
   Object.keys(headers).forEach(sheetName => {
@@ -252,6 +253,23 @@ function doGet(e) {
         responseData = rawComplaints.filter(r => String(r[1]).toUpperCase().trim() === category);
         break;
 
+      case 'get_valet_data':
+        const valetData = getSheetData(ss, 'Valet_Log');
+        responseData = valetData.map(r => ({
+          timestampIn: r[0],
+          date: r[1],
+          carNumber: String(r[2] || '').trim(),
+          cardNumber: String(r[3] || '').trim(),
+          parkingSlot: String(r[4] || '').trim(),
+          driverIn: String(r[5] || '').trim(),
+          timestampOut: r[6],
+          driverOut: String(r[7] || '').trim(),
+          status: String(r[8] || '').trim(),
+          remarks: String(r[9] || '').trim(),
+          rowIndex: r[r.length - 1]
+        }));
+        break;
+
       default:
         return createJsonResponse({ error: "Action Unknown: " + action });
     }
@@ -281,6 +299,7 @@ function doPost(e) {
   cache.remove("get_global_stats_AC"); // Invalidate global cache too
   cache.remove("get_assets_" + category);
   cache.remove("get_tools_" + category);
+  cache.remove("get_valet_data_VALET");
 
   try {
     switch(action) {
@@ -579,6 +598,45 @@ function doPost(e) {
         logSheet.appendRow(header);
         if (logsToKeep.length > 0) logSheet.getRange(2, 1, logsToKeep.length, header.length).setValues(logsToKeep);
         logSheet.appendRow([new Date(), 'SYSTEM', 0, 'RESET_ALL', category]);
+        break;
+
+      case 'valet_action':
+        const vSheet = ss.getSheetByName('Valet_Log');
+        const vNow = new Date();
+        const vAction = String(params.valetAction || '').trim();
+        const vCarNumber = String(params.carNumber || '').trim();
+        
+        if (vAction === 'Drive IN') {
+          const vDateStr = Utilities.formatDate(vNow, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+          vSheet.appendRow([
+            vNow,
+            vDateStr,
+            vCarNumber,
+            String(params.cardNumber || '').trim(),
+            String(params.parkingSlot || '').trim(),
+            String(params.driver || '').trim(),
+            '', // Timestamp_OUT
+            '', // Driver_OUT
+            'Parked',
+            String(params.remarks || '').trim()
+          ]);
+        } else if (vAction === 'Drive OUT') {
+          const vData = vSheet.getDataRange().getValues();
+          let targetRow = -1;
+          for (let i = vData.length - 1; i >= 1; i--) {
+            if (String(vData[i][2]).trim() === vCarNumber && (!vData[i][6] || String(vData[i][6]).trim() === "")) {
+              targetRow = i + 1;
+              break;
+            }
+          }
+          
+          if (targetRow !== -1) {
+            // Update Timestamp_OUT, Driver_OUT, Status
+            vSheet.getRange(targetRow, 7).setValue(vNow);
+            vSheet.getRange(targetRow, 8).setValue(String(params.driver || '').trim());
+            vSheet.getRange(targetRow, 9).setValue('Returned');
+          }
+        }
         break;
 
       default:

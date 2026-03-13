@@ -1,7 +1,7 @@
 
 import { FMCategory } from './types';
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzdLWigL28pVVj-EqFWWfI8muX42p3cUG6j9uSrb77BrXYIWEZEy13Qz-kz6WldQMQWtA/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzYvTpK8S7gsdlWKHv-jzcwAxn-NJuR0BXaPadVoX9E8hVyTQ0xBsINilHVnRU0Q83y0g/exec";
 
 // Swapped Taimoor and Saboor for Zone assignment logic
 export const TECHNICIANS = ['Bilal', 'Asad', 'Saboor', 'Taimoor'];
