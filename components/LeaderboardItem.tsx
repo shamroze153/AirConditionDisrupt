@@ -41,11 +41,17 @@ const LeaderboardItem: React.FC<Props> = ({ category, performanceLogs, limit, on
       : 0;
 
     return techList.map(tech => {
+      const lowerTech = tech.toLowerCase();
       const techEntries = performanceLogs.filter(log => {
         const logDate = new Date(log.Timestamp || 0).getTime();
         // FIX #3: Strict category filtering for performance data stream
         const catMatch = String(log.category || '').toUpperCase() === category.toUpperCase();
-        return log.tech === tech && logDate >= lastResetDate && log.reason !== 'RESET_ALL' && catMatch;
+        
+        // Split multi-tech names and check if this tech is included
+        const logNames = String(log.tech || '').split(/[&/,]|\band\b/i).map(s => s.trim().toLowerCase()).filter(Boolean);
+        const isIncluded = logNames.includes(lowerTech);
+        
+        return isIncluded && logDate >= lastResetDate && log.reason !== 'RESET_ALL' && catMatch;
       });
       const merit = techEntries.filter(l => l.points > 0).reduce((acc, curr) => acc + curr.points, 0);
       const demerit = Math.abs(techEntries.filter(l => l.points < 0).reduce((acc, curr) => acc + curr.points, 0));

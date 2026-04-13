@@ -1,7 +1,7 @@
 
 import { FMCategory } from './types';
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzYvTpK8S7gsdlWKHv-jzcwAxn-NJuR0BXaPadVoX9E8hVyTQ0xBsINilHVnRU0Q83y0g/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwgKS8y360zZwIVjIx4BuDEk2S5xEfVE-yLhi2gFzcxzY0kU5jt7ErwH7sxTZHyXaa9qA/exec";
 
 // Swapped Taimoor and Saboor for Zone assignment logic
 export const TECHNICIANS = ['Bilal', 'Asad', 'Saboor', 'Taimoor'];
@@ -157,4 +157,11 @@ export const DEFAULT_TOOLS: Record<string, { name: string, qty: number, technici
   'handyman': [
     { name: "Claw Hammer", qty: 1 },
   ]
+};
+
+export const SOFT_FM_STAFF: Record<string, string[]> = {
+  'Janitorial': ['Ahmed', 'Bilal', 'Saeed', 'Kamran'],
+  'Valet': ['Owais', 'Kashif', 'Farooq', 'Salahuddin'],
+  'Office Boy': ['Zubair', 'Hassan', 'Ali'],
+  'Other': ['Staff 1']
 };

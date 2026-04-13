@@ -164,16 +164,88 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
 
   const techLogsSorted = useMemo(() => {
     const logs = (stats?.allPerformanceLogs || []).reduce((acc: any[], curr) => {
-      const existing = acc.find(t => t.name === curr.tech);
-      if (existing) {
-        if (curr.points > 0) existing.merit += curr.points;
-        else existing.demerit += Math.abs(curr.points);
-        existing.total = existing.merit - existing.demerit;
-      } else acc.push({ name: curr.tech, merit: curr.points > 0 ? curr.points : 0, demerit: curr.points < 0 ? Math.abs(curr.points) : 0, total: curr.points });
+      // Split multi-tech names (e.g., "Bilal & Asad") into individual names
+      const names = String(curr.tech || '').split(/[&/,]|\band\b/i).map(s => s.trim()).filter(Boolean);
+      
+      names.forEach(name => {
+        const existing = acc.find(t => t.name === name);
+        if (existing) {
+          if (curr.points > 0) existing.merit += curr.points;
+          else existing.demerit += Math.abs(curr.points);
+          existing.total = existing.merit - existing.demerit;
+        } else {
+          acc.push({ 
+            name: name, 
+            merit: curr.points > 0 ? curr.points : 0, 
+            demerit: curr.points < 0 ? Math.abs(curr.points) : 0, 
+            total: curr.points, 
+            type: 'Hard FM' 
+          });
+        }
+      });
       return acc;
     }, []);
-    return logs.sort((a,b) => b.total - a.total).slice(0, 9);
+    return logs.sort((a,b) => b.total - a.total);
   }, [stats]);
+
+  const softFMStats = useMemo(() => {
+    const evals = stats?.softFMEvaluations || [];
+    if (evals.length === 0) return null;
+
+    const latestScores: Record<string, { name: string, department: string, score: number, count: number }> = {};
+    evals.forEach(e => {
+      if (!latestScores[e.name]) {
+        latestScores[e.name] = { name: e.name, department: e.department, score: 0, count: 0 };
+      }
+      latestScores[e.name].score += e.finalScore;
+      latestScores[e.name].count += 1;
+    });
+
+    const staffPerformance = Object.values(latestScores).map(s => ({
+      ...s,
+      avgScore: Math.round(s.score / s.count)
+    })).sort((a, b) => b.avgScore - a.avgScore);
+
+    const deptAvg: Record<string, { total: number, count: number }> = {};
+    staffPerformance.forEach(s => {
+      if (!deptAvg[s.department]) deptAvg[s.department] = { total: 0, count: 0 };
+      deptAvg[s.department].total += s.avgScore;
+      deptAvg[s.department].count += 1;
+    });
+
+    const departmentPerformance = Object.entries(deptAvg).map(([dept, data]) => ({
+      department: dept,
+      avg: Math.round(data.total / data.count)
+    }));
+
+    const totalAvg = Math.round(staffPerformance.reduce((acc, s) => acc + s.avgScore, 0) / staffPerformance.length);
+
+    return {
+      topPerformers: staffPerformance.slice(0, 5),
+      totalAvg,
+      departmentPerformance,
+      allStaff: staffPerformance
+    };
+  }, [stats]);
+
+  const combinedRanking = useMemo(() => {
+    const hard = techLogsSorted.map(t => ({
+      name: t.name,
+      score: t.total,
+      type: 'Hard FM',
+      displayScore: `${t.total} Pts`
+    }));
+    const soft = (softFMStats?.allStaff || []).map(s => ({
+      name: s.name,
+      score: s.avgScore,
+      type: 'Soft FM',
+      displayScore: `${s.avgScore} Pts`
+    }));
+
+    // We sort them separately or together. Let's show them together but maybe normalized.
+    // For now, let's just interleave them or show top from both.
+    return [...hard, ...soft].sort((a, b) => b.score - a.score);
+  }, [techLogsSorted, softFMStats]);
 
   const DrillDownRegistry = ({ type }: { type: 'tickets' | 'seating' }) => (
     <div className="mt-8 bg-slate-950 rounded-[2.5rem] border border-white/10 overflow-hidden shadow-2xl animate-slideDown">
@@ -399,15 +471,15 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
         {seatingDrill && <DrillDownRegistry type="seating" />}
       </section>
 
-      {/* SECTION 4: EXCELLENCE HUB */}
+      {/* SECTION 4: EXCELLENCE HUB - HARD FM */}
       <section className="space-y-8">
         <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900">Excellence Hub</h2>
+          <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900">Hard FM Excellence</h2>
           <div className="h-px flex-1 bg-slate-200"></div>
         </div>
         <div className="bg-slate-950 p-12 rounded-[4rem] shadow-3xl border border-white/5 relative overflow-hidden">
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
-              {techLogsSorted.map((s, i) => (
+              {techLogsSorted.slice(0, 9).map((s, i) => (
                 <button key={s.name} onClick={() => { setTechDrill(techDrill === s.name ? null : s.name); setComplaintDrill(null); setOMDrill(null); setSeatingDrill(null); }} className={`border p-6 rounded-[2.5rem] flex items-center justify-between transition-all group ${techDrill === s.name ? 'bg-white/20 border-white/20' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
                    <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl bg-white/5 border border-white/5 text-slate-500 italic shadow-inner">{i + 1}</div>
@@ -429,7 +501,92 @@ const GlobalDashboardView: React.FC<Props> = ({ stats }) => {
         {techDrill && <DrillDownRegistry type="tickets" />}
       </section>
 
-      {/* SECTION 5: TECHNICIAN PERFORMANCE & OCCUPANCY */}
+      {/* SECTION 5: SOFT FM PERFORMANCE OVERVIEW */}
+      {softFMStats && (
+        <section className="space-y-8">
+          <div className="flex items-center gap-4">
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900">Soft FM Performance Overview</h2>
+            <div className="h-px flex-1 bg-slate-200"></div>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Top 5 Performers */}
+            <div className="lg:col-span-2 bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-6 italic">Top 5 Soft FM Performers</h3>
+              <div className="space-y-4">
+                {softFMStats.topPerformers.map((s, i) => (
+                  <div key={s.name} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-black italic">#{i+1}</div>
+                      <div>
+                        <p className="text-[11px] font-black text-slate-900 uppercase italic">{s.name}</p>
+                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{s.department}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-black text-indigo-600 italic tracking-tighter">{s.avgScore} Pts</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Dept Stats & Avg */}
+            <div className="space-y-8">
+              <div className="bg-indigo-600 p-8 rounded-[3rem] text-white shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 blur-3xl"></div>
+                <p className="text-[9px] font-black uppercase tracking-[0.4em] text-white/60 mb-2">Average Soft FM Score</p>
+                <h2 className="text-6xl font-black italic tracking-tighter">{softFMStats.totalAvg} Pts</h2>
+              </div>
+
+              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-6 italic">Department Performance</h3>
+                <div className="space-y-6">
+                  {softFMStats.departmentPerformance.map(d => (
+                    <div key={d.department}>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[9px] font-black uppercase text-slate-600">{d.department}</span>
+                        <span className="text-[9px] font-black text-indigo-600">{d.avg} Pts</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${d.avg}%` }}></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* SECTION 6: OVERALL WORKFORCE RANKING */}
+      <section className="space-y-8">
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900">Overall Workforce Ranking</h2>
+          <div className="h-px flex-1 bg-slate-200"></div>
+        </div>
+        <div className="bg-slate-900 p-10 rounded-[4rem] shadow-2xl border border-white/5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {combinedRanking.slice(0, 12).map((r, i) => (
+              <div key={`${r.name}-${r.type}`} className="bg-white/5 border border-white/5 p-5 rounded-[2rem] flex items-center justify-between group hover:bg-white/10 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-black text-white/30 italic">#{i+1}</div>
+                  <div>
+                    <p className="text-[10px] font-black text-white uppercase italic leading-none">{r.name}</p>
+                    <p className={`text-[6px] font-black uppercase tracking-widest mt-1 ${r.type === 'Hard FM' ? 'text-amber-400' : 'text-indigo-400'}`}>{r.type}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-black text-white italic tracking-tighter">{r.displayScore}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 7: TECHNICIAN PERFORMANCE & OCCUPANCY */}
       <section className="space-y-8">
         <div className="flex items-center gap-4">
           <h2 className="text-2xl font-black italic uppercase tracking-tighter text-slate-900">Technician Performance & Occupancy</h2>

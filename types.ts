@@ -126,6 +126,7 @@ export interface GlobalStatsResponse {
   allChecklistAudits?: ChecklistAuditEntry[];
   proactiveCount?: number;
   seatingData?: Seat[];
+  softFMEvaluations?: SoftFMEvaluation[];
 }
 
 export enum AppTab {
@@ -171,4 +172,30 @@ export interface ValetLogEntry {
   status: string;
   remarks: string;
   rowIndex?: number;
+}
+
+export interface SoftFMEvaluation {
+  timestamp: string;
+  week: string;
+  name: string;
+  department: string;
+  attendance: number;
+  punctuality: number;
+  behavior: number;
+  performance: number;
+  supervisorScore: number;
+  autoDailyScore: number;
+  finalScore: number;
+  remarks: string;
+}
+
+export interface SoftFMStaff {
+  name: string;
+  department: string;
+}
+
+export interface CarData {
+  number: string;
+  model: string;
+  color: string;
 }

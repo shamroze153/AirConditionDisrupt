@@ -8,6 +8,7 @@ interface Props {
   onBack: () => void;
   onSelectCategory: (category: FMCategory) => void;
   onOpenGlobal: () => void;
+  onOpenSoftFM: () => void;
   tickets: Ticket[];
   acAttendance: Record<string, boolean>;
   elecAttendance: Record<string, boolean>;
@@ -20,13 +21,15 @@ const ISSUE_CATEGORIES: Record<string, string[]> = {
   'default': ['Technical Breakdown', 'General Request', 'Safety Hazard', 'Operational Support', 'Others']
 };
 
-const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlobal, tickets, acAttendance, elecAttendance }) => {
+const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlobal, onOpenSoftFM, tickets, acAttendance, elecAttendance }) => {
   const [reportModal, setReportModal] = useState(false);
   const [reportStep, setReportStep] = useState(1); // 1: Category Selection, 2: Details/Asset
   const [selectedCat, setSelectedCat] = useState<FMCategory | null>(null);
   const [isFetchingAssets, setIsFetchingAssets] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   
+  const [showSoftFMPassword, setShowSoftFMPassword] = useState(false);
+  const [password, setPassword] = useState('');
   const [formData, setFormData] = useState({
     campus: '',
     floor: '',
@@ -76,6 +79,16 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       } finally {
         setIsFetchingAssets(false);
       }
+    }
+  };
+
+  const verifyPassword = () => {
+    if (password === '5566') {
+      onOpenSoftFM();
+      setShowSoftFMPassword(false);
+      setPassword('');
+    } else {
+      alert('Incorrect Password');
     }
   };
 
@@ -211,23 +224,40 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
       <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-12 space-y-10 md:space-y-12 hide-scroll pb-24 md:pb-20">
         <section>
           <div className="flex items-center gap-4 mb-5 md:mb-6">
-            <h2 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-slate-400 italic">Centralized Analytics</h2>
+            <h2 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-slate-400 italic">Excellence Hub</h2>
             <div className="h-px flex-1 bg-slate-100"></div>
           </div>
-          <button onClick={onOpenGlobal} className="w-full bg-slate-900 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-white/5 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-2xl">
-             <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-indigo-500/10 blur-[100px]"></div>
-             <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-center gap-6 md:gap-8">
-               <div className="flex gap-4 md:gap-8 items-center">
-                 <div className="w-14 h-14 md:w-20 md:h-20 bg-white/10 text-indigo-400 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-2xl backdrop-blur-md">
-                   <i className="fas fa-project-diagram"></i>
-                 </div>
-                 <div>
-                   <h2 className="text-xl md:text-4xl font-black text-white italic tracking-tighter uppercase leading-none mb-2 md:mb-3">Disrupt FM Operations</h2>
-                   <p className="text-[7px] font-black text-indigo-400 uppercase tracking-[0.4em] md:tracking-[0.5em] italic">Real-Time Infrastructure Sync & Merit Data Stream</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+            <button onClick={onOpenGlobal} className="w-full bg-slate-900 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-white/5 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-2xl">
+               <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-indigo-500/10 blur-[100px]"></div>
+               <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-center gap-6 md:gap-8">
+                 <div className="flex gap-4 md:gap-8 items-center">
+                   <div className="w-14 h-14 md:w-20 md:h-20 bg-white/10 text-indigo-400 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-2xl backdrop-blur-md">
+                     <i className="fas fa-project-diagram"></i>
+                   </div>
+                   <div>
+                     <h2 className="text-xl md:text-4xl font-black text-white italic tracking-tighter uppercase leading-none mb-2 md:mb-3">Disrupt FM Operations</h2>
+                     <p className="text-[7px] font-black text-indigo-400 uppercase tracking-[0.4em] md:tracking-[0.5em] italic">Real-Time Infrastructure Sync & Merit Data Stream</p>
+                   </div>
                  </div>
                </div>
-             </div>
-          </button>
+            </button>
+
+            <button onClick={() => setShowSoftFMPassword(true)} className="w-full bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-slate-100 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-xl">
+               <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-indigo-500/5 blur-[100px]"></div>
+               <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-center gap-6 md:gap-8">
+                 <div className="flex gap-4 md:gap-8 items-center">
+                   <div className="w-14 h-14 md:w-20 md:h-20 bg-indigo-50 text-indigo-600 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
+                     <i className="fas fa-star"></i>
+                   </div>
+                   <div>
+                     <h2 className="text-xl md:text-4xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2 md:mb-3">Evaluate Soft FM Team</h2>
+                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] md:tracking-[0.5em] italic">Supervisor Scorecard & Performance Analytics</p>
+                   </div>
+                 </div>
+               </div>
+            </button>
+          </div>
         </section>
 
         <section>
@@ -449,6 +479,36 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                     </button>
                   </div>
                 )}
+             </div>
+          </div>
+        </div>
+      )}
+      {/* PASSWORD MODAL */}
+      {showSoftFMPassword && (
+        <div className="fixed inset-0 bg-slate-950/90 z-[200] flex items-center justify-center p-4 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-3xl border border-white/10 relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-40 h-40 bg-indigo-600/5 blur-3xl"></div>
+             <div className="relative z-10">
+                <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl mb-6 shadow-inner">
+                   <i className="fas fa-lock"></i>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 italic uppercase tracking-tighter mb-2">Admin Protocol</h3>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest italic mb-8">Enter Authorization Key to Access Scorecard</p>
+                
+                <input 
+                  type="password" 
+                  autoFocus
+                  placeholder="ENTER KEY..." 
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && verifyPassword()}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-xl font-black italic tracking-widest outline-none focus:border-indigo-600 transition-all mb-6"
+                />
+                
+                <div className="flex gap-3">
+                   <button onClick={() => { setShowSoftFMPassword(false); setPassword(''); }} className="flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 italic hover:bg-slate-50 transition-all">Cancel</button>
+                   <button onClick={verifyPassword} className="flex-[2] bg-slate-900 text-white py-4 rounded-xl text-[10px] font-black uppercase tracking-widest italic shadow-xl active:scale-95 transition-all">Verify Key</button>
+                </div>
              </div>
           </div>
         </div>

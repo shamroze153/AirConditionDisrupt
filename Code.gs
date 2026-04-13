@@ -1,6 +1,6 @@
 
 /**
- * DISRUPT_FM_ULTIMATE Backend v24.4 - Strategic Auto-Merge & Analytics Engine
+ * DISRUPT_FM_ULTIMATE Backend v24.6 - Strategic Auto-Merge & Analytics Engine
  */
 
 const SPREADSHEET_ID = "1F6mPsijxNZF3xIoeZMI9ndZjNb_VdzZrkndPvBkBPsE"; // IMPORTANT: Update this ID if using a different spreadsheet
@@ -25,7 +25,8 @@ function initializeSheets(ss) {
     'System_Insights': ['Timestamp', 'Category', 'AssetTag', 'InsightType', 'Details'],
     'Seating_Plan': ['No', 'location', 'Campus Code', 'Floor Tag', 'Room No. Tag', 'Work Station Tag', 'Emp Name', 'Emp Code', 'Type of Employee', 'Room Code', 'Room Code - Dashboard', 'Seat Code', 'BU', 'Department', 'Category', 'Status', 'snapshot_date', 'FINAL-DEPT'],
     'Master_Tools': ['Category', 'Name', 'Quantity', 'Technician'],
-    'Valet_Log': ['Timestamp_IN', 'Date', 'CarNumber', 'CardNumber', 'ParkingSlot', 'Driver_IN', 'Timestamp_OUT', 'Driver_OUT', 'Status', 'Remarks']
+    'Valet_Log': ['Timestamp_IN', 'Date', 'CarNumber', 'CardNumber', 'ParkingSlot', 'Driver_IN', 'Timestamp_OUT', 'Driver_OUT', 'Status', 'Remarks'],
+    'SoftFM_Weekly_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks']
   };
 
   Object.keys(headers).forEach(sheetName => {
@@ -60,7 +61,7 @@ function doGet(e) {
   const cache = CacheService.getScriptCache();
   const cacheKey = action + "_" + category;
   
-  if (['get_stats', 'get_global_stats', 'get_tools', 'get_assets'].includes(action)) {
+  if (['get_stats', 'get_global_stats', 'get_tools', 'get_assets', 'get_softfm_evaluations', 'get_valet_data'].includes(action)) {
     const cached = cache.get(cacheKey);
     if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
   }
@@ -68,6 +69,24 @@ function doGet(e) {
   try {
     let responseData;
     switch(action) {
+      case 'get_softfm_evaluations':
+        const softFMData = getSheetData(ss, 'SoftFM_Weekly_Evaluation');
+        responseData = softFMData.map(r => ({
+          timestamp: r[0],
+          week: r[1],
+          name: String(r[2] || '').trim(),
+          department: String(r[3] || '').trim(),
+          attendance: Number(r[4]),
+          punctuality: Number(r[5]),
+          behavior: Number(r[6]),
+          performance: Number(r[7]),
+          supervisorScore: Number(r[8]),
+          autoDailyScore: Number(r[9]),
+          finalScore: Number(r[10]),
+          remarks: String(r[11] || '').trim()
+        }));
+        break;
+
       case 'get_tools':
         const toolData = getFilteredSheetData(ss, 'Master_Tools', 0, category);
         responseData = toolData.map(r => ({ 
@@ -240,7 +259,21 @@ function doGet(e) {
           roomCodeDashboard: String(row[10] || '').trim(), seatCode: String(row[11] || '').trim(), bu: String(row[12] || '').trim(), department: String(row[13] || '').trim(),
           category: String(row[14] || '').trim(), status: String(row[15] || '').trim(), snapshotDate: String(row[16] || '').trim(), finalDept: String(row[17] || '').trim()
         }));
-        responseData = { allTickets, allPerformanceLogs: allLogs, allChecklistAudits, seatingData };
+        const softFMEvaluations = getSheetData(ss, 'SoftFM_Weekly_Evaluation').map(r => ({
+          timestamp: r[0],
+          week: r[1],
+          name: String(r[2] || '').trim(),
+          department: String(r[3] || '').trim(),
+          attendance: Number(r[4]),
+          punctuality: Number(r[5]),
+          behavior: Number(r[6]),
+          performance: Number(r[7]),
+          supervisorScore: Number(r[8]),
+          autoDailyScore: Number(r[9]),
+          finalScore: Number(r[10]),
+          remarks: String(r[11] || '').trim()
+        }));
+        responseData = { allTickets, allPerformanceLogs: allLogs, allChecklistAudits, seatingData, softFMEvaluations };
         break;
 
       case 'get_checklist_report':
@@ -271,7 +304,11 @@ function doGet(e) {
         break;
 
       default:
-        return createJsonResponse({ error: "Action Unknown: " + action });
+        return createJsonResponse({ 
+          error: "Action Unknown: " + action,
+          v: "24.6",
+          allowed: ["get_stats", "get_global_stats", "get_softfm_evaluations"]
+        });
     }
     return createJsonResponse(responseData, cacheKey);
   } catch (err) {
@@ -300,6 +337,7 @@ function doPost(e) {
   cache.remove("get_assets_" + category);
   cache.remove("get_tools_" + category);
   cache.remove("get_valet_data_VALET");
+  cache.remove("get_softfm_evaluations_AC"); // Soft FM evaluations are global but we use AC as default category for global actions
 
   try {
     switch(action) {
@@ -637,6 +675,23 @@ function doPost(e) {
             vSheet.getRange(targetRow, 9).setValue('Returned');
           }
         }
+        break;
+
+      case 'submit_softfm_evaluation':
+        ss.getSheetByName('SoftFM_Weekly_Evaluation').appendRow([
+          new Date(),
+          params.week,
+          params.name,
+          params.department,
+          Number(params.attendance),
+          Number(params.punctuality),
+          Number(params.behavior),
+          Number(params.performance),
+          Number(params.supervisorScore),
+          Number(params.autoDailyScore),
+          Number(params.finalScore),
+          params.remarks
+        ]);
         break;
 
       default:

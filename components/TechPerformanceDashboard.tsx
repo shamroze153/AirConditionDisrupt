@@ -43,12 +43,21 @@ const TechPerformanceDashboard: React.FC<TechPerformanceDashboardProps> = ({ cat
   const metrics = useMemo(() => {
     if (!stats) return [];
 
-    const techs = Array.from(new Set([
-      ...stats.complaints.map((t: Ticket) => t.assignedTo),
-      ...stats.complaints.map((t: Ticket) => t.resolvedBy),
-      ...stats.performanceLogs.map((l: PerformanceLogEntry) => l.tech),
-      ...(stats.checklistAudits || []).map((a: ChecklistAuditEntry) => a.technician)
-    ])).filter(name => name && name !== 'Unassigned' && name !== 'SYSTEM' && name !== 'Maestro Sync');
+    const techs = Array.from(new Set(
+      (stats.complaints || []).flatMap((t: Ticket) => {
+        const assigned = String(t.assignedTo || '').split(/[&/,]|\band\b/i).map(s => s.trim());
+        const resolved = String(t.resolvedBy || '').split(/[&/,]|\band\b/i).map(s => s.trim());
+        return [...assigned, ...resolved];
+      }).concat(
+        (stats.performanceLogs || []).flatMap((l: PerformanceLogEntry) => 
+          String(l.tech || '').split(/[&/,]|\band\b/i).map(s => s.trim())
+        )
+      ).concat(
+        (stats.checklistAudits || []).flatMap((a: ChecklistAuditEntry) => 
+          String(a.technician || '').split(/[&/,]|\band\b/i).map(s => s.trim())
+        )
+      )
+    )).filter(name => name && name !== 'Unassigned' && name !== 'SYSTEM' && name !== 'Maestro Sync');
 
     const now = new Date();
     const SHIFT_HOURS = 9;
@@ -71,7 +80,12 @@ const TechPerformanceDashboard: React.FC<TechPerformanceDashboardProps> = ({ cat
     const standardHours = workingDays * 8;
 
     return techs.map(name => {
-      const techTickets = stats.complaints.filter((t: Ticket) => (t.assignedTo === name || t.resolvedBy === name) && filterDate(t.date));
+      const lowerName = name.toLowerCase();
+      const techTickets = stats.complaints.filter((t: Ticket) => {
+        const assigned = String(t.assignedTo || '').split(/[&/,]|\band\b/i).map(s => s.trim().toLowerCase());
+        const resolved = String(t.resolvedBy || '').split(/[&/,]|\band\b/i).map(s => s.trim().toLowerCase());
+        return (assigned.includes(lowerName) || resolved.includes(lowerName)) && filterDate(t.date);
+      });
       const resolvedTickets = techTickets.filter((t: Ticket) => ['Resolved', 'Resolved (Admin)', 'Resolved by Technician', 'Resolved – Pending Admin Review', 'Completed'].includes(t.status));
       
       const starRatings = resolvedTickets.map((t: Ticket) => t.starRating).filter((r): r is number => typeof r === 'number' && r > 0);
@@ -81,10 +95,16 @@ const TechPerformanceDashboard: React.FC<TechPerformanceDashboardProps> = ({ cat
       starRatings.forEach((r: number) => { if (starCounts[Math.round(r)] !== undefined) starCounts[Math.round(r)]++; });
 
       const totalPoints = stats.performanceLogs
-        .filter((l: PerformanceLogEntry) => l.tech === name && filterDate(l.Timestamp || ''))
+        .filter((l: PerformanceLogEntry) => {
+          const logNames = String(l.tech || '').split(/[&/,]|\band\b/i).map(s => s.trim().toLowerCase());
+          return logNames.includes(lowerName) && filterDate(l.Timestamp || '');
+        })
         .reduce((sum: number, l: PerformanceLogEntry) => sum + l.points, 0);
 
-      const techAudits = (stats.checklistAudits || []).filter((a: ChecklistAuditEntry) => a.technician === name && filterDate(a.timestamp));
+      const techAudits = (stats.checklistAudits || []).filter((a: ChecklistAuditEntry) => {
+        const auditNames = String(a.technician || '').split(/[&/,]|\band\b/i).map(s => s.trim().toLowerCase());
+        return auditNames.includes(lowerName) && filterDate(a.timestamp);
+      });
       const checklistCompliance = techAudits.length > 0 
         ? (techAudits.filter((a: ChecklistAuditEntry) => ['OK', 'Resolved', 'Completed'].includes(a.status)).length / techAudits.length) * 100 
         : 0;

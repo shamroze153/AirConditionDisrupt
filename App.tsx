@@ -14,9 +14,10 @@ import TechPerformanceDashboard from './components/TechPerformanceDashboard';
 import NotificationToast from './components/NotificationToast';
 import SeatingView from './components/SeatingView';
 import { ValetView } from './components/ValetView';
+import { SoftFMView } from './components/SoftFMView';
 
 const App: React.FC = () => {
-  const [screen, setScreen] = useState<'landing' | 'category-hub' | 'app' | 'checklist' | 'global-dashboard'>('landing');
+  const [screen, setScreen] = useState<'landing' | 'category-hub' | 'app' | 'checklist' | 'global-dashboard' | 'soft-fm'>('landing');
   const [currentCategory, setCurrentCategory] = useState<FMCategory>(FM_CATEGORIES[0]);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
 
@@ -149,6 +150,7 @@ const App: React.FC = () => {
           onBack={() => setScreen('landing')} 
           onSelectCategory={handleSelectCategory} 
           onOpenGlobal={() => { setScreen('global-dashboard'); isFirstLoadRef.current = true; }}
+          onOpenSoftFM={() => setScreen('soft-fm')}
           tickets={globalStats?.allTickets || []}
           acAttendance={acAttendance}
           elecAttendance={elecAttendance}
@@ -257,6 +259,12 @@ const App: React.FC = () => {
           <div className="flex-1 overflow-y-auto hide-scroll pb-10">
             <GlobalDashboardView stats={globalStats} onRefresh={() => refreshData(false)} showToast={showToast} />
           </div>
+        </div>
+      )}
+
+      {screen === 'soft-fm' && (
+        <div className="flex-1 h-full overflow-hidden">
+          <SoftFMView onBack={() => setScreen('category-hub')} isAdmin={true} />
         </div>
       )}
     </div>

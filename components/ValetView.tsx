@@ -1,17 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Car, ArrowRight, ArrowLeft, CheckCircle2, XCircle, MapPin, User, Hash, MessageSquare, Loader2 } from 'lucide-react';
-import { fetchValetData, logValetAction } from '../services/api';
-import { ValetLogEntry } from '../types';
+import { Car, ArrowRight, ArrowLeft, CheckCircle2, XCircle, MapPin, User, Hash, MessageSquare, Loader2, Plus, Trash2, Lock, Settings } from 'lucide-react';
+import { fetchValetData, logValetAction, fetchCarMaster, addCarMaster, deleteCarMaster } from '../services/api';
+import { ValetLogEntry, CarData } from '../types';
 
 const PARKING_LOCATIONS = ['Parking 1', 'Parking 2', 'Parking 3', 'Street'];
 const VALET_DRIVERS = ['Owais', 'Kashif', 'Farooq', 'Salah Uddin'];
-
-interface CarData {
-  number: string;
-  model: string;
-  color: string;
-}
 
 const CAR_COLORS = [
   '#3b82f6', // blue
@@ -24,48 +18,6 @@ const CAR_COLORS = [
   '#f97316', // orange
   '#6366f1', // indigo
   '#14b8a6', // teal
-];
-
-const REAL_CARS: CarData[] = [
-  { number: 'BYK 825', model: 'CHINGCHI', color: CAR_COLORS[0] },
-  { number: 'BYA 853', model: 'COROLLA', color: CAR_COLORS[1] },
-  { number: 'CEN 761', model: 'ALTO', color: CAR_COLORS[2] },
-  { number: 'AVH 384', model: 'SWIFT', color: CAR_COLORS[3] },
-  { number: 'BAF 386', model: 'SWIFT', color: CAR_COLORS[4] },
-  { number: 'BWA 854', model: 'CHINGCHI', color: CAR_COLORS[5] },
-  { number: 'AUR 796', model: 'ALTO', color: CAR_COLORS[6] },
-  { number: 'BXW 990', model: 'ALTO', color: CAR_COLORS[7] },
-  { number: 'BSM 897', model: 'ALTO', color: CAR_COLORS[8] },
-  { number: 'BK 7815', model: 'ALTO', color: CAR_COLORS[9] },
-  { number: 'BPN-065', model: 'SPOT', color: CAR_COLORS[0] },
-  { number: 'BAF-386', model: 'COROLLA', color: CAR_COLORS[1] },
-  { number: 'BXP-886', model: 'CULTUS', color: CAR_COLORS[2] },
-  { number: 'ABA 081', model: 'PICANTO', color: CAR_COLORS[3] },
-  { number: 'BYU 106', model: 'ALTO', color: CAR_COLORS[4] },
-  { number: 'BAF 672', model: 'PASSO', color: CAR_COLORS[5] },
-  { number: 'BXP 672', model: 'PASSO', color: CAR_COLORS[6] },
-  { number: 'BYB-611', model: 'YARIS', color: CAR_COLORS[7] },
-  { number: 'BOK 490', model: 'ALTO', color: CAR_COLORS[8] },
-  { number: 'ADW 550', model: 'ALTO', color: CAR_COLORS[9] },
-  { number: 'APH-693', model: 'CULTUS', color: CAR_COLORS[0] },
-  { number: 'BVR 183', model: 'PASSO', color: CAR_COLORS[1] },
-  { number: 'BZH 189', model: 'PASSO', color: CAR_COLORS[2] },
-  { number: 'BNP-432', model: 'MIRA', color: CAR_COLORS[3] },
-  { number: 'AWY 093', model: 'ALTO', color: CAR_COLORS[4] },
-  { number: 'AUY 624', model: 'ALTO', color: CAR_COLORS[5] },
-  { number: 'BPG 535', model: 'VITZ', color: CAR_COLORS[6] },
-  { number: 'CBL 336', model: 'CITY', color: CAR_COLORS[7] },
-  { number: 'BJL 893', model: 'CIVIC', color: CAR_COLORS[8] },
-  { number: 'BN 1535', model: 'ISTIG', color: CAR_COLORS[9] },
-  { number: 'BUY 228', model: 'YARIS', color: CAR_COLORS[0] },
-  { number: 'AWM 340', model: 'LANT', color: CAR_COLORS[1] },
-  { number: 'BAT 942', model: 'CULTUS', color: CAR_COLORS[2] },
-  { number: 'BLU 294', model: 'CULTUS', color: CAR_COLORS[3] },
-  { number: 'CEN 651', model: 'UNKNOWN', color: CAR_COLORS[4] },
-  { number: 'BXG 190', model: 'CITY', color: CAR_COLORS[5] },
-  { number: 'BH 7703', model: 'ISTIG', color: CAR_COLORS[6] },
-  { number: 'BUE-709', model: 'UNKNOWN', color: CAR_COLORS[7] },
-  { number: 'BF 2275', model: 'JP', color: CAR_COLORS[8] },
 ];
 
 const CarIcon: React.FC<{ model: string; color: string; className?: string }> = ({ model, color, className }) => {
@@ -85,14 +37,26 @@ const CarIcon: React.FC<{ model: string; color: string; className?: string }> = 
   );
 };
 
+const CAR_MODELS = ['ALTO', 'COROLLA', 'CULTUS', 'SWIFT', 'YARIS', 'CITY', 'CIVIC', 'PASSO', 'MIRA', 'PICANTO', 'CHINGCHI', 'OTHER'];
+
 export const ValetView: React.FC = () => {
   const [logs, setLogs] = useState<ValetLogEntry[]>([]);
+  const [cars, setCars] = useState<CarData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'main' | 'drive-in' | 'drive-out'>('main');
+  const [view, setView] = useState<'main' | 'drive-in' | 'drive-out' | 'admin'>('main');
   const [selectedCar, setSelectedCar] = useState<CarData | null>(null);
   const [outCar, setOutCar] = useState<ValetLogEntry | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAddCarForm, setShowAddCarForm] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [newCar, setNewCar] = useState({
+    number: '',
+    model: CAR_MODELS[0],
+    otherModel: '',
+    parkingSlot: PARKING_LOCATIONS[0]
+  });
   const [formData, setFormData] = useState({
     carNumber: '',
     driverName: '',
@@ -105,10 +69,14 @@ export const ValetView: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const data = await fetchValetData();
-      setLogs(data);
+      const [valetData, carData] = await Promise.all([
+        fetchValetData(),
+        fetchCarMaster()
+      ]);
+      setLogs(valetData);
+      setCars(carData);
     } catch (error) {
-      console.error('Failed to fetch valet data:', error);
+      console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
     }
@@ -138,10 +106,67 @@ export const ValetView: React.FC = () => {
     currentlyParked: Object.keys(parkedCars).length
   };
 
-  const filteredCars = REAL_CARS.filter(car => 
+  const filteredCars = cars.filter(car => 
     car.number.toLowerCase().includes(searchQuery.toLowerCase()) ||
     car.model.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleAddCar = async () => {
+    if (!newCar.number) {
+      alert('Please enter car number');
+      return;
+    }
+    const model = newCar.model === 'OTHER' ? newCar.otherModel : newCar.model;
+    if (!model) {
+      alert('Please enter car model');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+      await addCarMaster({
+        number: newCar.number.toUpperCase(),
+        model: model.toUpperCase(),
+        color: color
+      });
+      await loadData();
+      setShowAddCarForm(false);
+      setNewCar({
+        number: '',
+        model: CAR_MODELS[0],
+        otherModel: '',
+        parkingSlot: PARKING_LOCATIONS[0]
+      });
+    } catch (error) {
+      alert('Failed to add car');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteCar = async (number: string) => {
+    if (!confirm(`Are you sure you want to delete car ${number}?`)) return;
+    
+    setSubmitting(true);
+    try {
+      await deleteCarMaster(number);
+      await loadData();
+    } catch (error) {
+      alert('Failed to delete car');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAdminLogin = () => {
+    if (adminPassword === '5566') {
+      setIsAdminAuthenticated(true);
+      setAdminPassword('');
+    } else {
+      alert('Incorrect password');
+    }
+  };
 
   const handleDriveIn = async () => {
     if (!formData.carNumber || !formData.cardNumber) {
@@ -211,28 +236,38 @@ export const ValetView: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto p-4 space-y-6">
       {/* Dashboard Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <motion.div 
-          whileHover={{ scale: 1.02 }}
-          className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 text-center"
+      <div className="flex items-center justify-between gap-4">
+        <div className="grid grid-cols-3 gap-4 flex-1">
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 text-center"
+          >
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mb-1">Parked Today</p>
+            <p className="text-3xl font-black text-blue-600">{stats.totalParkedToday}</p>
+          </motion.div>
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 text-center"
+          >
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mb-1">Returned Today</p>
+            <p className="text-3xl font-black text-green-600">{stats.totalReturnedToday}</p>
+          </motion.div>
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 text-center"
+          >
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mb-1">Current Parked</p>
+            <p className="text-3xl font-black text-orange-600">{stats.currentlyParked}</p>
+          </motion.div>
+        </div>
+        <motion.button
+          whileHover={{ scale: 1.1, rotate: 90 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setView('admin')}
+          className="p-4 bg-gray-100 text-gray-400 rounded-full hover:bg-gray-200 transition-all"
         >
-          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mb-1">Parked Today</p>
-          <p className="text-3xl font-black text-blue-600">{stats.totalParkedToday}</p>
-        </motion.div>
-        <motion.div 
-          whileHover={{ scale: 1.02 }}
-          className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 text-center"
-        >
-          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mb-1">Returned Today</p>
-          <p className="text-3xl font-black text-green-600">{stats.totalReturnedToday}</p>
-        </motion.div>
-        <motion.div 
-          whileHover={{ scale: 1.02 }}
-          className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 text-center"
-        >
-          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-black mb-1">Current Parked</p>
-          <p className="text-3xl font-black text-orange-600">{stats.currentlyParked}</p>
-        </motion.div>
+          <Settings size={24} />
+        </motion.button>
       </div>
 
       <AnimatePresence mode="wait">
@@ -301,19 +336,100 @@ export const ValetView: React.FC = () => {
 
             {!selectedCar ? (
               <div className="space-y-4">
-                <div className="relative group">
-                  <div className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-                    <Hash size={24} />
+                <div className="flex gap-4">
+                  <div className="relative group flex-1">
+                    <div className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors">
+                      <Hash size={24} />
+                    </div>
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Type Car Number Plate (e.g. BYA...)"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-16 pr-6 py-6 bg-white border-4 border-gray-50 focus:border-blue-500 rounded-[32px] outline-none transition-all font-black text-2xl shadow-xl shadow-gray-100"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    autoFocus
-                    placeholder="Type Car Number Plate (e.g. BYA...)"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-16 pr-6 py-6 bg-white border-4 border-gray-50 focus:border-blue-500 rounded-[32px] outline-none transition-all font-black text-2xl shadow-xl shadow-gray-100"
-                  />
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowAddCarForm(true)}
+                    className="px-8 bg-blue-600 text-white rounded-[32px] font-black flex items-center gap-2 shadow-xl shadow-blue-100"
+                  >
+                    <Plus size={24} /> Add New Car
+                  </motion.button>
                 </div>
+
+                <AnimatePresence>
+                  {showAddCarForm && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="bg-blue-50 p-8 rounded-[40px] border-4 border-blue-100 space-y-6 overflow-hidden"
+                    >
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-2">Car Number</label>
+                          <input
+                            type="text"
+                            placeholder="ABC-123"
+                            value={newCar.number}
+                            onChange={e => setNewCar({ ...newCar, number: e.target.value })}
+                            className="w-full px-6 py-4 bg-white rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-black text-xl uppercase"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-2">Car Model</label>
+                          <select
+                            value={newCar.model}
+                            onChange={e => setNewCar({ ...newCar, model: e.target.value })}
+                            className="w-full px-6 py-4 bg-white rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-black text-xl"
+                          >
+                            {CAR_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-2">Parking Slot</label>
+                          <select
+                            value={newCar.parkingSlot}
+                            onChange={e => setNewCar({ ...newCar, parkingSlot: e.target.value })}
+                            className="w-full px-6 py-4 bg-white rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-black text-xl"
+                          >
+                            {PARKING_LOCATIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        </div>
+                        {newCar.model === 'OTHER' && (
+                          <div className="md:col-span-3 space-y-2">
+                            <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-2">Specify Model</label>
+                            <input
+                              type="text"
+                              placeholder="Enter Car Model"
+                              value={newCar.otherModel}
+                              onChange={e => setNewCar({ ...newCar, otherModel: e.target.value })}
+                              className="w-full px-6 py-4 bg-white rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-black text-xl uppercase"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-4">
+                        <button
+                          onClick={handleAddCar}
+                          disabled={submitting}
+                          className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                        >
+                          {submitting ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Save & Add Car
+                        </button>
+                        <button
+                          onClick={() => setShowAddCarForm(false)}
+                          className="px-8 py-4 bg-white text-gray-400 rounded-2xl font-black uppercase tracking-widest hover:bg-gray-100 transition-all"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pr-2 hide-scroll">
                   {filteredCars.map(car => (
@@ -601,6 +717,99 @@ export const ValetView: React.FC = () => {
                   </motion.button>
                 </div>
               </motion.div>
+            )}
+          </motion.div>
+        )}
+
+        {view === 'admin' && (
+          <motion.div
+            key="admin"
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-3xl font-black text-gray-800 tracking-tighter flex items-center gap-3">
+                <div className="bg-gray-800 p-2 rounded-xl text-white"><Settings size={24} /></div>
+                ADMIN CONTROL
+              </h2>
+              <button
+                onClick={() => { setView('main'); setIsAdminAuthenticated(false); setAdminPassword(''); }}
+                className="px-6 py-3 bg-gray-100 text-gray-500 rounded-2xl font-black text-sm hover:bg-gray-200 transition-all uppercase tracking-widest"
+              >
+                Exit
+              </button>
+            </div>
+
+            {!isAdminAuthenticated ? (
+              <div className="bg-white p-12 rounded-[48px] shadow-2xl shadow-gray-100 border-4 border-gray-50 flex flex-col items-center space-y-8">
+                <div className="bg-gray-100 p-8 rounded-full">
+                  <Lock size={64} className="text-gray-400" />
+                </div>
+                <div className="text-center space-y-2">
+                  <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Restricted Access</h3>
+                  <p className="text-gray-400 font-medium">Enter admin password to manage car master list</p>
+                </div>
+                <div className="w-full max-w-xs space-y-4">
+                  <input
+                    type="password"
+                    placeholder="••••"
+                    value={adminPassword}
+                    onChange={e => setAdminPassword(e.target.value)}
+                    className="w-full px-8 py-6 bg-gray-50 border-4 border-transparent focus:border-gray-800 rounded-[32px] outline-none text-center font-black text-4xl tracking-[0.5em] transition-all"
+                  />
+                  <button
+                    onClick={handleAdminLogin}
+                    className="w-full py-6 bg-gray-800 text-white rounded-[32px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-gray-200"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="bg-white p-8 rounded-[40px] border-4 border-gray-50 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-black text-gray-800 uppercase tracking-tighter">Manage Car Master</h3>
+                    <div className="text-xs font-black text-gray-400 uppercase tracking-widest">{cars.length} Total Cars</div>
+                  </div>
+                  
+                  <div className="relative">
+                    <div className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400">
+                      <Hash size={20} />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search car to delete..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full pl-14 pr-6 py-4 bg-gray-50 border-2 border-transparent focus:border-gray-800 rounded-2xl outline-none transition-all font-bold"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 max-h-[400px] overflow-y-auto pr-2 hide-scroll">
+                    {filteredCars.map(car => (
+                      <div key={car.number} className="p-4 bg-gray-50 rounded-2xl flex items-center justify-between group hover:bg-white hover:shadow-lg transition-all border-2 border-transparent hover:border-gray-100">
+                        <div className="flex items-center gap-4">
+                          <CarIcon model={car.model} color={car.color} className="scale-75" />
+                          <div>
+                            <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{car.model}</div>
+                            <div className="text-lg font-black text-gray-800">{car.number}</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteCar(car.number)}
+                          disabled={submitting}
+                          className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
           </motion.div>
         )}

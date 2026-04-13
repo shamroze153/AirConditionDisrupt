@@ -1,4 +1,4 @@
-import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool, ValetLogEntry } from '../types';
+import { Asset, Ticket, StatsResponse, GasTransaction, CategoryKey, GlobalStatsResponse, Seat, Tool, ValetLogEntry, SoftFMEvaluation, CarData } from '../types';
 import { WEB_APP_URL } from '../constants';
 
 const cache: Record<string, { data: any, timestamp: number }> = {};
@@ -253,6 +253,35 @@ export const logTakeover = async (category: CategoryKey, originalTech: string, a
 
 export const fetchValetData = async (): Promise<ValetLogEntry[]> =>
   safeFetch(WEB_APP_URL, { action: 'get_valet_data' });
+
+export const fetchCarMaster = async (): Promise<CarData[]> =>
+  safeFetch(WEB_APP_URL, { action: 'get_car_master' });
+
+export const addCarMaster = async (car: CarData): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'add_car_master');
+  fd.append('number', car.number);
+  fd.append('model', car.model);
+  fd.append('color', car.color);
+  await postAction(fd);
+};
+
+export const deleteCarMaster = async (number: string): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'delete_car_master');
+  fd.append('number', number);
+  await postAction(fd);
+};
+
+export const fetchSoftFMEvaluations = async (): Promise<SoftFMEvaluation[]> =>
+  safeFetch(WEB_APP_URL, { action: 'get_softfm_evaluations' });
+
+export const submitSoftFMEvaluation = async (data: Omit<SoftFMEvaluation, 'timestamp'>): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'submit_softfm_evaluation');
+  Object.entries(data).forEach(([key, value]) => fd.append(key, String(value)));
+  await postAction(fd);
+};
 
 export const logValetAction = async (data: {
   carNumber: string;
