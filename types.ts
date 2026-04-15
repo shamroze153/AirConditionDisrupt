@@ -179,6 +179,7 @@ export interface SoftFMEvaluation {
   week: string;
   name: string;
   department: string;
+  subCategory?: string; // 'Parking' or 'Office' for Gate keeper
   attendance: number;
   punctuality: number;
   behavior: number;
@@ -187,15 +188,42 @@ export interface SoftFMEvaluation {
   autoDailyScore: number;
   finalScore: number;
   remarks: string;
+  // Security specific KPIs (1-5 stars)
+  accessControl?: number;
+  visitorManagement?: number;
+  materialMovement?: number;
+  securityAwareness?: number;
+  discipline?: number;
+  communication?: number;
+  // Security Supervisor KPIs
+  teamManagement?: number;
+  inspection?: number;
+  incidentHandling?: number;
+  reporting?: number;
+  weaponHandling?: number;
+  training?: number;
+  fleetHandling?: number;
+  liaison?: number;
+  riskIdentification?: number;
+  // Paramedic KPIs
+  emergencyResponse?: number;
+  firstAidCases?: number;
+  equipmentReadiness?: number;
+  medicineControl?: number;
+  healthMonitoring?: number;
+  hygieneClinic?: number;
 }
 
 export interface SoftFMStaff {
+  code: string;
   name: string;
   department: string;
+  role?: 'Rider' | 'Driver';
 }
 
 export interface CarData {
   number: string;
   model: string;
   color: string;
+  notes?: string;
 }

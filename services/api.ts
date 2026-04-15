@@ -39,13 +39,18 @@ const safeFetch = async (baseUrl: string, params: Record<string, string> = {}, o
     
     cache[cacheKey] = { data, timestamp: Date.now() };
     return data;
-  } catch (error) {
-    if (retries > 0) {
+  } catch (error: any) {
+    const isUnknownAction = error.message?.includes('Action Unknown');
+    
+    if (retries > 0 && !isUnknownAction) {
       console.warn(`Retrying fetch (${retries} left) for: ${baseUrl}`);
       await new Promise(res => setTimeout(res, 1500));
       return safeFetch(baseUrl, params, options, retries - 1);
     }
-    console.error(`Fetch failure for ${baseUrl}:`, error);
+    
+    if (!isUnknownAction) {
+      console.error(`Fetch failure for ${baseUrl}:`, error);
+    }
     throw error;
   }
 };
@@ -251,11 +256,23 @@ export const logTakeover = async (category: CategoryKey, originalTech: string, a
   await postAction(fd);
 };
 
-export const fetchValetData = async (): Promise<ValetLogEntry[]> =>
-  safeFetch(WEB_APP_URL, { action: 'get_valet_data' });
+export const fetchValetData = async (): Promise<ValetLogEntry[]> => {
+  try {
+    return await safeFetch(WEB_APP_URL, { action: 'get_valet_data' });
+  } catch (e: any) {
+    if (e.message?.includes('Action Unknown')) return [];
+    throw e;
+  }
+};
 
-export const fetchCarMaster = async (): Promise<CarData[]> =>
-  safeFetch(WEB_APP_URL, { action: 'get_car_master' });
+export const fetchCarMaster = async (): Promise<CarData[]> => {
+  try {
+    return await safeFetch(WEB_APP_URL, { action: 'get_car_master' });
+  } catch (e: any) {
+    if (e.message?.includes('Action Unknown')) return [];
+    throw e;
+  }
+};
 
 export const addCarMaster = async (car: CarData): Promise<void> => {
   const fd = new FormData();
@@ -273,12 +290,34 @@ export const deleteCarMaster = async (number: string): Promise<void> => {
   await postAction(fd);
 };
 
-export const fetchSoftFMEvaluations = async (): Promise<SoftFMEvaluation[]> =>
-  safeFetch(WEB_APP_URL, { action: 'get_softfm_evaluations' });
+export const fetchSoftFMEvaluations = async (): Promise<SoftFMEvaluation[]> => {
+  try {
+    return await safeFetch(WEB_APP_URL, { action: 'get_softfm_evaluations' });
+  } catch (e: any) {
+    if (e.message?.includes('Action Unknown')) return [];
+    throw e;
+  }
+};
+
+export const fetchSecurityEvaluations = async (): Promise<SoftFMEvaluation[]> => {
+  try {
+    return await safeFetch(WEB_APP_URL, { action: 'get_security_evaluations' });
+  } catch (e: any) {
+    if (e.message?.includes('Action Unknown')) return [];
+    throw e;
+  }
+};
 
 export const submitSoftFMEvaluation = async (data: Omit<SoftFMEvaluation, 'timestamp'>): Promise<void> => {
   const fd = new FormData();
   fd.append('action', 'submit_softfm_evaluation');
+  Object.entries(data).forEach(([key, value]) => fd.append(key, String(value)));
+  await postAction(fd);
+};
+
+export const submitSecurityEvaluation = async (data: Omit<SoftFMEvaluation, 'timestamp'>): Promise<void> => {
+  const fd = new FormData();
+  fd.append('action', 'submit_security_evaluation');
   Object.entries(data).forEach(([key, value]) => fd.append(key, String(value)));
   await postAction(fd);
 };

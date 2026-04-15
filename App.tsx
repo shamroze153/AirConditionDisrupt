@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Asset, Ticket, AppTab, StatsResponse, FMCategory, GlobalStatsResponse } from './types';
+import { Asset, Ticket, AppTab, StatsResponse, FMCategory, GlobalStatsResponse, ValetLogEntry, CarData } from './types';
 import { fetchAssets, fetchStats, fetchGlobalStats } from './services/api';
 import { FM_CATEGORIES, TECHNICIANS, ELECTRICAL_TECHNICIANS, GM_TECHNICIANS } from './constants';
 import LandingView from './components/LandingView';
@@ -18,6 +18,7 @@ import { SoftFMView } from './components/SoftFMView';
 
 const App: React.FC = () => {
   const [screen, setScreen] = useState<'landing' | 'category-hub' | 'app' | 'checklist' | 'global-dashboard' | 'soft-fm'>('landing');
+  const [evaluationType, setEvaluationType] = useState<'soft-fm' | 'security'>('soft-fm');
   const [currentCategory, setCurrentCategory] = useState<FMCategory>(FM_CATEGORIES[0]);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
 
@@ -49,6 +50,11 @@ const App: React.FC = () => {
     return initial;
   });
 
+  // Pre-fetch Valet data for faster loading
+  const [valetLogs, setValetLogs] = useState<ValetLogEntry[]>([]);
+  const [valetCars, setValetCars] = useState<CarData[]>([]);
+  const [isValetDataLoaded, setIsValetDataLoaded] = useState(false);
+
   const attendance = currentCategory?.id === 'electrical' 
     ? elecAttendance 
     : currentCategory?.id === 'handyman' 
@@ -73,11 +79,39 @@ const App: React.FC = () => {
       if (!isSilent && isFirstLoadRef.current) setIsLoading(true);
       lastFetchTime.current = Date.now();
 
-      if (screen === 'landing' || screen === 'category-hub' || screen === 'global-dashboard' || currentCategory.id === 'seating') {
+      if (screen === 'landing' || screen === 'category-hub' || screen === 'global-dashboard' || currentCategory.id === 'seating' || currentCategory.id === 'valet') {
         const globalData = await fetchGlobalStats();
         if (globalData && typeof globalData === 'object') {
           setGlobalStats(globalData);
           isFirstLoadRef.current = false;
+        }
+        
+        // If we are in category hub or valet, make sure valet data is fresh
+        if (screen === 'category-hub' || currentCategory.id === 'valet') {
+          const { fetchValetData, fetchCarMaster } = await import('./services/api');
+          const { PRE_DEFINED_VEHICLES } = await import('./constants');
+          
+          const [vLogs, vCarsResult] = await Promise.allSettled([
+            fetchValetData(),
+            fetchCarMaster()
+          ]);
+
+          if (vLogs.status === 'fulfilled') setValetLogs(vLogs.value);
+          
+          const allCarsMap: Record<string, CarData> = {};
+          PRE_DEFINED_VEHICLES.forEach(c => { allCarsMap[c.number.toUpperCase()] = c; });
+          
+          if (vCarsResult.status === 'fulfilled') {
+            vCarsResult.value.forEach((c: CarData) => { allCarsMap[c.number.toUpperCase()] = c; });
+          } else if (vLogs.status === 'fulfilled') {
+            vLogs.value.forEach((log: ValetLogEntry) => {
+              if (log.carNumber && !allCarsMap[log.carNumber.toUpperCase()]) {
+                allCarsMap[log.carNumber.toUpperCase()] = { number: log.carNumber, model: log.remarks || 'Unknown', color: '#3b82f6' };
+              }
+            });
+          }
+          setValetCars(Object.values(allCarsMap));
+          setIsValetDataLoaded(true);
         }
       } else {
         const [assetList, statData] = await Promise.all([
@@ -150,7 +184,7 @@ const App: React.FC = () => {
           onBack={() => setScreen('landing')} 
           onSelectCategory={handleSelectCategory} 
           onOpenGlobal={() => { setScreen('global-dashboard'); isFirstLoadRef.current = true; }}
-          onOpenSoftFM={() => setScreen('soft-fm')}
+          onOpenEvaluation={(type) => { setEvaluationType(type); setScreen('soft-fm'); }}
           tickets={globalStats?.allTickets || []}
           acAttendance={acAttendance}
           elecAttendance={elecAttendance}
@@ -191,7 +225,12 @@ const App: React.FC = () => {
             {currentCategory.id === 'seating' ? (
               <SeatingView stats={globalStats} onRefresh={() => refreshData(false)} />
             ) : currentCategory.id === 'valet' ? (
-              <ValetView />
+              <ValetView 
+                preLoadedLogs={valetLogs} 
+                preLoadedCars={valetCars} 
+                isPreLoaded={isValetDataLoaded}
+                onRefresh={() => refreshData(false)}
+              />
             ) : (
               <>
                 {activeTab === AppTab.DASHBOARD && (
@@ -264,7 +303,7 @@ const App: React.FC = () => {
 
       {screen === 'soft-fm' && (
         <div className="flex-1 h-full overflow-hidden">
-          <SoftFMView onBack={() => setScreen('category-hub')} isAdmin={true} />
+          <SoftFMView onBack={() => setScreen('category-hub')} isAdmin={true} type={evaluationType} />
         </div>
       )}
     </div>

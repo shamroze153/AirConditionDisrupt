@@ -1,5 +1,5 @@
 
-import { FMCategory } from './types';
+import { FMCategory, SoftFMStaff } from './types';
 
 export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwgKS8y360zZwIVjIx4BuDEk2S5xEfVE-yLhi2gFzcxzY0kU5jt7ErwH7sxTZHyXaa9qA/exec";
 
@@ -159,9 +159,106 @@ export const DEFAULT_TOOLS: Record<string, { name: string, qty: number, technici
   ]
 };
 
-export const SOFT_FM_STAFF: Record<string, string[]> = {
-  'Janitorial': ['Ahmed', 'Bilal', 'Saeed', 'Kamran'],
-  'Valet': ['Owais', 'Kashif', 'Farooq', 'Salahuddin'],
-  'Office Boy': ['Zubair', 'Hassan', 'Ali'],
-  'Other': ['Staff 1']
+export const PRE_DEFINED_VEHICLES: any[] = [
+  { number: 'ABD 523', model: 'YARIS', color: '#3b82f6', notes: '-' },
+  { number: 'ABL 748', model: 'Alto', color: '#3b82f6', notes: '-' },
+  { number: 'BTR 942', model: '(Corolla / similar)', color: '#3b82f6', notes: '-' },
+  { number: 'BXE 705', model: 'Cultus', color: '#3b82f6', notes: '-' },
+  { number: 'BGK 835', model: 'Alto', color: '#3b82f6', notes: '-' },
+  { number: 'BHP 778', model: 'Cultus', color: '#3b82f6', notes: '-' },
+  { number: 'BXD 543', model: 'Alto', color: '#3b82f6', notes: '-' },
+  { number: 'BYE 849', model: 'Cultus', color: '#3b82f6', notes: '-' },
+  { number: 'BXA 190', model: 'YARIS', color: '#3b82f6', notes: '-' },
+  { number: 'BUL 214', model: 'Alto', color: '#3b82f6', notes: '-' },
+  { number: 'BNP 432', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'ABL 452', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'BNL 853', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'BYE 874', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'ANX 501', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'BXE 745', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'AAJ 979', model: 'ROCKY', color: '#3b82f6', notes: 'ROCKY' },
+  { number: 'BKG 351', model: 'YARIS', color: '#3b82f6', notes: '' },
+  { number: 'C00-353', model: 'Alto', color: '#3b82f6', notes: '-' },
+  { number: 'BVL 214', model: 'Cultus', color: '#3b82f6', notes: '-' },
+  { number: 'BXV-909', model: 'ALTO', color: '#3b82f6', notes: '-' }
+];
+
+export const SOFT_FM_STAFF: Record<string, SoftFMStaff[]> = {
+  'Valet': [
+    { code: '3384', name: 'Sunny Souno', department: 'Valet', role: 'Rider' },
+    { code: '1977', name: 'Farooq Hussain', department: 'Valet', role: 'Driver' },
+    { code: '3333', name: 'Sahib Ur Rehman', department: 'Valet', role: 'Driver' },
+    { code: '2212', name: 'M Salah uddin', department: 'Valet', role: 'Driver' },
+    { code: '2414', name: 'Syed Asghar Ali', department: 'Valet', role: 'Driver' },
+    { code: '2415', name: 'Kashif Ahmed', department: 'Valet', role: 'Driver' }
+  ],
+  'Office Boy': [
+    { code: '405', name: 'M. Naseem Khan', department: 'Office Boy' },
+    { code: '638', name: 'Arshad Hussain', department: 'Office Boy' },
+    { code: '1978', name: 'Sohail Khan', department: 'Office Boy' },
+    { code: '2009', name: 'Ali Hassan', department: 'Office Boy' },
+    { code: '2099', name: 'M. Furqan', department: 'Office Boy' },
+    { code: '2166', name: 'Azhar Abbas', department: 'Office Boy' },
+    { code: '2167', name: 'Allaha Ditta', department: 'Office Boy' },
+    { code: '1525', name: 'Kamran Ghaffar', department: 'Office Boy' },
+    { code: '655', name: 'M. Shahid', department: 'Office Boy' },
+    { code: '2310', name: 'Muhammad Hussain', department: 'Office Boy' },
+    { code: '1300', name: 'M Mustafa', department: 'Office Boy' },
+    { code: '209', name: 'M. Jawed', department: 'Office Boy' },
+    { code: '1617', name: 'M. Asif', department: 'Office Boy' },
+    { code: '2286', name: 'Noor Khan', department: 'Office Boy' },
+    { code: '335', name: 'Salman Khan', department: 'Office Boy' },
+    { code: '499', name: 'Jameel Akhter', department: 'Office Boy' }
+  ],
+  'Rider': [
+    { code: '3080', name: 'Muzamil Ahmed', department: 'Rider' },
+    { code: '226', name: 'Abdul Hadi', department: 'Rider' },
+    { code: '898', name: 'Abdul Mateen', department: 'Rider' }
+  ],
+  'Receptionist': [
+    { code: '1910', name: 'Arbaz Hussain', department: 'Receptionist' },
+    { code: '1343', name: 'Ahsan Hussain', department: 'Receptionist' }
+  ],
+  'Janitorial': [
+    { code: '776', name: 'Kalash Nat', department: 'Janitorial' },
+    { code: '1322', name: 'Raju', department: 'Janitorial' },
+    { code: '1337', name: 'Waseem', department: 'Janitorial' },
+    { code: '1344', name: 'Saleem Kumar', department: 'Janitorial' },
+    { code: '1401', name: 'Jawed Bhatti', department: 'Janitorial' },
+    { code: '2008', name: 'Danish Khan', department: 'Janitorial' },
+    { code: '2068', name: 'Sharjeel', department: 'Janitorial' },
+    { code: '1883', name: 'Lata Vicky', department: 'Janitorial' },
+    { code: '613', name: 'Jhonson Ilyas', department: 'Janitorial' },
+    { code: '629', name: 'Sanjay Kumar', department: 'Janitorial' },
+    { code: '1941', name: 'Aakash', department: 'Janitorial' },
+    { code: '1884', name: 'Pardeep Kumar', department: 'Janitorial' },
+    { code: '2337', name: 'Danish Safel', department: 'Janitorial' },
+    { code: '1650', name: 'Deepak Kumar', department: 'Janitorial' },
+    { code: '2369', name: 'Sagar Chand', department: 'Janitorial' },
+    { code: '3334', name: 'Komal Raj', department: 'Janitorial' },
+    { code: '1609', name: 'Nisha Babu', department: 'Janitorial' },
+    { code: '3081', name: 'Rekha Chawriya', department: 'Janitorial' },
+    { code: '3413', name: 'Tina Adnan', department: 'Janitorial' }
+  ],
+  'Gate keeper': [
+    { code: '740', name: 'Syed Fazal Shah', department: 'Gate keeper' },
+    { code: '2472', name: 'Abdul Kabeer', department: 'Gate keeper' },
+    { code: '2474', name: 'Khalid', department: 'Gate keeper' },
+    { code: '2208', name: 'Muhammad Shahzad', department: 'Gate keeper' },
+    { code: '1301', name: 'Amit Kumar', department: 'Gate keeper' },
+    { code: '1893', name: 'Lakhan', department: 'Gate keeper' },
+    { code: '2845', name: 'Mamoon - Ur - Rasheed', department: 'Gate keeper' },
+    { code: '2197', name: 'Ayush Kishan', department: 'Gate keeper' },
+    { code: '2376', name: 'Naseem Uddin', department: 'Gate keeper' },
+    { code: '3142', name: 'Haseeb Khan', department: 'Gate keeper' },
+    { code: '1711', name: 'Muhammad Abid', department: 'Gate keeper' },
+    { code: '2553', name: 'Mahtab Ahmed', department: 'Gate keeper' }
+  ],
+  'Security Supervisor': [
+    { code: '3019', name: 'Muhammad Ramzan', department: 'Security Supervisor' },
+    { code: '3380', name: 'ASAD KHAN', department: 'Security Supervisor' }
+  ],
+  'Paramedic Staff': [
+    { code: '3466', name: 'Arsalan Yousaf', department: 'Paramedic Staff' }
+  ]
 };

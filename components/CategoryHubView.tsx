@@ -8,7 +8,7 @@ interface Props {
   onBack: () => void;
   onSelectCategory: (category: FMCategory) => void;
   onOpenGlobal: () => void;
-  onOpenSoftFM: () => void;
+  onOpenEvaluation: (type: 'soft-fm' | 'security') => void;
   tickets: Ticket[];
   acAttendance: Record<string, boolean>;
   elecAttendance: Record<string, boolean>;
@@ -21,7 +21,7 @@ const ISSUE_CATEGORIES: Record<string, string[]> = {
   'default': ['Technical Breakdown', 'General Request', 'Safety Hazard', 'Operational Support', 'Others']
 };
 
-const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlobal, onOpenSoftFM, tickets, acAttendance, elecAttendance }) => {
+const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlobal, onOpenEvaluation, tickets, acAttendance, elecAttendance }) => {
   const [reportModal, setReportModal] = useState(false);
   const [reportStep, setReportStep] = useState(1); // 1: Category Selection, 2: Details/Asset
   const [selectedCat, setSelectedCat] = useState<FMCategory | null>(null);
@@ -29,6 +29,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   const [assets, setAssets] = useState<Asset[]>([]);
   
   const [showSoftFMPassword, setShowSoftFMPassword] = useState(false);
+  const [pendingType, setPendingType] = useState<'soft-fm' | 'security'>('soft-fm');
   const [password, setPassword] = useState('');
   const [formData, setFormData] = useState({
     campus: '',
@@ -82,9 +83,9 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
     }
   };
 
-  const verifyPassword = () => {
+  const verifyPassword = (type: 'soft-fm' | 'security') => {
     if (password === '5566') {
-      onOpenSoftFM();
+      onOpenEvaluation(type);
       setShowSoftFMPassword(false);
       setPassword('');
     } else {
@@ -227,32 +228,47 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
             <h2 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-slate-400 italic">Excellence Hub</h2>
             <div className="h-px flex-1 bg-slate-100"></div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
             <button onClick={onOpenGlobal} className="w-full bg-slate-900 p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-white/5 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-2xl">
                <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-indigo-500/10 blur-[100px]"></div>
-               <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-center gap-6 md:gap-8">
+               <div className="relative z-10 flex flex-col justify-between h-full gap-6">
                  <div className="flex gap-4 md:gap-8 items-center">
                    <div className="w-14 h-14 md:w-20 md:h-20 bg-white/10 text-indigo-400 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-2xl backdrop-blur-md">
                      <i className="fas fa-project-diagram"></i>
                    </div>
                    <div>
-                     <h2 className="text-xl md:text-4xl font-black text-white italic tracking-tighter uppercase leading-none mb-2 md:mb-3">Disrupt FM Operations</h2>
-                     <p className="text-[7px] font-black text-indigo-400 uppercase tracking-[0.4em] md:tracking-[0.5em] italic">Real-Time Infrastructure Sync & Merit Data Stream</p>
+                     <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase leading-none mb-2">Disrupt FM Operations</h2>
+                     <p className="text-[7px] font-black text-indigo-400 uppercase tracking-[0.4em] italic leading-tight">Infrastructure Sync & Merit Data</p>
                    </div>
                  </div>
                </div>
             </button>
 
-            <button onClick={() => setShowSoftFMPassword(true)} className="w-full bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-slate-100 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-xl">
-               <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-indigo-500/5 blur-[100px]"></div>
-               <div className="relative z-10 flex flex-col md:flex-row justify-between md:items-center gap-6 md:gap-8">
+            <button onClick={() => { setPendingType('soft-fm'); setShowSoftFMPassword(true); }} className="w-full bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-slate-100 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-xl">
+               <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-emerald-500/5 blur-[100px]"></div>
+               <div className="relative z-10 flex flex-col justify-between h-full gap-6">
                  <div className="flex gap-4 md:gap-8 items-center">
-                   <div className="w-14 h-14 md:w-20 md:h-20 bg-indigo-50 text-indigo-600 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
+                   <div className="w-14 h-14 md:w-20 md:h-20 bg-emerald-50 text-emerald-600 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
                      <i className="fas fa-star"></i>
                    </div>
                    <div>
-                     <h2 className="text-xl md:text-4xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2 md:mb-3">Evaluate Soft FM Team</h2>
-                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] md:tracking-[0.5em] italic">Supervisor Scorecard & Performance Analytics</p>
+                     <h2 className="text-xl md:text-2xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Soft FM Evaluation</h2>
+                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] italic leading-tight">Valet, Office Boy & Staff Scorecards</p>
+                   </div>
+                 </div>
+               </div>
+            </button>
+
+            <button onClick={() => { setPendingType('security'); setShowSoftFMPassword(true); }} className="w-full bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] border border-slate-100 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-xl">
+               <div className="absolute top-0 right-0 w-64 md:w-80 h-64 md:h-80 bg-rose-500/5 blur-[100px]"></div>
+               <div className="relative z-10 flex flex-col justify-between h-full gap-6">
+                 <div className="flex gap-4 md:gap-8 items-center">
+                   <div className="w-14 h-14 md:w-20 md:h-20 bg-rose-50 text-rose-600 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
+                     <i className="fas fa-shield-alt"></i>
+                   </div>
+                   <div>
+                     <h2 className="text-xl md:text-2xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Security Evaluation</h2>
+                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] italic leading-tight">Gate Keeper & Supervisor Scorecards</p>
                    </div>
                  </div>
                </div>
@@ -501,13 +517,13 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                   placeholder="ENTER KEY..." 
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && verifyPassword()}
+                  onKeyDown={e => e.key === 'Enter' && verifyPassword(pendingType)}
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-xl font-black italic tracking-widest outline-none focus:border-indigo-600 transition-all mb-6"
                 />
                 
                 <div className="flex gap-3">
                    <button onClick={() => { setShowSoftFMPassword(false); setPassword(''); }} className="flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 italic hover:bg-slate-50 transition-all">Cancel</button>
-                   <button onClick={verifyPassword} className="flex-[2] bg-slate-900 text-white py-4 rounded-xl text-[10px] font-black uppercase tracking-widest italic shadow-xl active:scale-95 transition-all">Verify Key</button>
+                   <button onClick={() => verifyPassword(pendingType)} className="flex-[2] bg-slate-900 text-white py-4 rounded-xl text-[10px] font-black uppercase tracking-widest italic shadow-xl active:scale-95 transition-all">Verify Key</button>
                 </div>
              </div>
           </div>

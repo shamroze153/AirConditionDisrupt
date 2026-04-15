@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Car, ArrowRight, ArrowLeft, CheckCircle2, XCircle, MapPin, User, Hash, MessageSquare, Loader2, Plus, Trash2, Lock, Settings } from 'lucide-react';
-import { fetchValetData, logValetAction, fetchCarMaster, addCarMaster, deleteCarMaster } from '../services/api';
+import { fetchValetData, logValetAction, fetchCarMaster, addCarMaster, deleteCarMaster, submitSoftFMEvaluation } from '../services/api';
 import { ValetLogEntry, CarData } from '../types';
+import { SOFT_FM_STAFF, PRE_DEFINED_VEHICLES } from '../constants';
 
-const PARKING_LOCATIONS = ['Parking 1', 'Parking 2', 'Parking 3', 'Street'];
-const VALET_DRIVERS = ['Owais', 'Kashif', 'Farooq', 'Salah Uddin'];
+const PARKING_LOCATIONS = ['P1', 'P2', 'P3', 'STREET'];
+const VALET_DRIVERS = SOFT_FM_STAFF['Valet'].map(s => s.name);
 
 const CAR_COLORS = [
   '#3b82f6', // blue
@@ -39,10 +40,26 @@ const CarIcon: React.FC<{ model: string; color: string; className?: string }> = 
 
 const CAR_MODELS = ['ALTO', 'COROLLA', 'CULTUS', 'SWIFT', 'YARIS', 'CITY', 'CIVIC', 'PASSO', 'MIRA', 'PICANTO', 'CHINGCHI', 'OTHER'];
 
-export const ValetView: React.FC = () => {
-  const [logs, setLogs] = useState<ValetLogEntry[]>([]);
-  const [cars, setCars] = useState<CarData[]>([]);
-  const [loading, setLoading] = useState(true);
+const NumberPlate: React.FC<{ number: string; className?: string }> = ({ number, className }) => (
+  <div className={`bg-white border-2 border-gray-900 rounded-md px-3 py-1 shadow-sm flex items-center justify-center inline-block ${className}`}>
+    <div className="border border-gray-300 rounded px-2 py-0.5 flex items-center gap-2">
+      <div className="w-1.5 h-6 bg-blue-600 rounded-sm" />
+      <span className="text-xl font-black text-gray-900 tracking-tighter uppercase font-mono">{number}</span>
+    </div>
+  </div>
+);
+
+interface ValetViewProps {
+  preLoadedLogs?: ValetLogEntry[];
+  preLoadedCars?: CarData[];
+  isPreLoaded?: boolean;
+  onRefresh?: () => void;
+}
+
+export const ValetView: React.FC<ValetViewProps> = ({ preLoadedLogs, preLoadedCars, isPreLoaded, onRefresh }) => {
+  const [logs, setLogs] = useState<ValetLogEntry[]>(preLoadedLogs || []);
+  const [cars, setCars] = useState<CarData[]>(preLoadedCars || []);
+  const [loading, setLoading] = useState(!isPreLoaded);
   const [view, setView] = useState<'main' | 'drive-in' | 'drive-out' | 'admin'>('main');
   const [selectedCar, setSelectedCar] = useState<CarData | null>(null);
   const [outCar, setOutCar] = useState<ValetLogEntry | null>(null);
@@ -55,6 +72,7 @@ export const ValetView: React.FC = () => {
     number: '',
     model: CAR_MODELS[0],
     otherModel: '',
+    notes: '',
     parkingSlot: PARKING_LOCATIONS[0]
   });
   const [formData, setFormData] = useState({
@@ -69,12 +87,47 @@ export const ValetView: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [valetData, carData] = await Promise.all([
+      const [valetData, carDataResult] = await Promise.allSettled([
         fetchValetData(),
         fetchCarMaster()
       ]);
-      setLogs(valetData);
-      setCars(carData);
+      
+      const valetDataVal = valetData.status === 'fulfilled' ? valetData.value : [];
+      setLogs(valetDataVal);
+
+      if (carDataResult.status === 'fulfilled') {
+        // Merge pre-defined vehicles with backend data, avoiding duplicates by number
+        const backendCars = carDataResult.value;
+        const allCarsMap: Record<string, CarData> = {};
+        
+        PRE_DEFINED_VEHICLES.forEach(c => {
+          allCarsMap[c.number.toUpperCase()] = c;
+        });
+        
+        backendCars.forEach(c => {
+          allCarsMap[c.number.toUpperCase()] = c;
+        });
+        
+        setCars(Object.values(allCarsMap));
+      } else {
+        console.warn('Failed to fetch car master, using pre-defined and deriving from logs:', carDataResult.reason);
+        const allCarsMap: Record<string, CarData> = {};
+        
+        PRE_DEFINED_VEHICLES.forEach(c => {
+          allCarsMap[c.number.toUpperCase()] = c;
+        });
+
+        valetDataVal.forEach(log => {
+          if (log.carNumber && !allCarsMap[log.carNumber.toUpperCase()]) {
+            allCarsMap[log.carNumber.toUpperCase()] = {
+              number: log.carNumber,
+              model: log.remarks || 'Unknown',
+              color: '#3b82f6'
+            };
+          }
+        });
+        setCars(Object.values(allCarsMap));
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -83,8 +136,14 @@ export const ValetView: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isPreLoaded && preLoadedLogs && preLoadedCars) {
+      setLogs(preLoadedLogs);
+      setCars(preLoadedCars);
+      setLoading(false);
+    } else {
+      loadData();
+    }
+  }, [isPreLoaded, preLoadedLogs, preLoadedCars]);
 
   const today = new Date().toISOString().split('T')[0];
   
@@ -128,7 +187,8 @@ export const ValetView: React.FC = () => {
       await addCarMaster({
         number: newCar.number.toUpperCase(),
         model: model.toUpperCase(),
-        color: color
+        color: color,
+        notes: newCar.notes
       });
       await loadData();
       setShowAddCarForm(false);
@@ -136,6 +196,7 @@ export const ValetView: React.FC = () => {
         number: '',
         model: CAR_MODELS[0],
         otherModel: '',
+        notes: '',
         parkingSlot: PARKING_LOCATIONS[0]
       });
     } catch (error) {
@@ -184,7 +245,28 @@ export const ValetView: React.FC = () => {
         driver: formData.valetDriver,
         remarks: formData.remarks
       });
-      await loadData();
+
+      // Live Auto Points Submission
+      try {
+        await submitSoftFMEvaluation({
+          week: `Auto ${new Date().toLocaleDateString()}`,
+          name: formData.valetDriver,
+          department: 'Valet',
+          attendance: 0,
+          punctuality: 0,
+          behavior: 0,
+          performance: 0,
+          supervisorScore: 0,
+          autoDailyScore: 10,
+          finalScore: 10,
+          remarks: `Auto Valet IN: ${formData.carNumber}`
+        });
+      } catch (e) {
+        console.error("Failed to submit live valet points:", e);
+      }
+
+      if (onRefresh) onRefresh();
+      else await loadData();
       setView('main');
       setSelectedCar(null);
       setSearchQuery('');
@@ -214,7 +296,28 @@ export const ValetView: React.FC = () => {
         driver: formData.valetDriver,
         remarks: 'Returned to owner'
       });
-      await loadData();
+
+      // Live Auto Points Submission
+      try {
+        await submitSoftFMEvaluation({
+          week: `Auto ${new Date().toLocaleDateString()}`,
+          name: formData.valetDriver,
+          department: 'Valet',
+          attendance: 0,
+          punctuality: 0,
+          behavior: 0,
+          performance: 0,
+          supervisorScore: 0,
+          autoDailyScore: 10,
+          finalScore: 10,
+          remarks: `Auto Valet OUT: ${outCar.carNumber}`
+        });
+      } catch (e) {
+        console.error("Failed to submit live valet points:", e);
+      }
+
+      if (onRefresh) onRefresh();
+      else await loadData();
       setView('main');
       setOutCar(null);
     } catch (error) {
@@ -411,6 +514,16 @@ export const ValetView: React.FC = () => {
                             />
                           </div>
                         )}
+                        <div className="md:col-span-3 space-y-2">
+                          <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-2">Notes (Driver / Other)</label>
+                          <input
+                            type="text"
+                            placeholder="Optional notes..."
+                            value={newCar.notes}
+                            onChange={e => setNewCar({ ...newCar, notes: e.target.value })}
+                            className="w-full px-6 py-4 bg-white rounded-2xl border-2 border-transparent focus:border-blue-500 outline-none font-black text-xl"
+                          />
+                        </div>
                       </div>
                       <div className="flex gap-4">
                         <button
@@ -432,42 +545,52 @@ export const ValetView: React.FC = () => {
                 </AnimatePresence>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pr-2 hide-scroll">
-                  {filteredCars.map(car => (
-                    <motion.button
-                      layout
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      key={car.number}
-                      disabled={!!parkedCars[car.number]}
-                      onClick={() => {
-                        setSelectedCar(car);
-                        setFormData(prev => ({ 
-                          ...prev, 
-                          carNumber: car.number,
-                          remarks: car.model
-                        }));
-                      }}
-                      className={`p-6 bg-white border-2 rounded-[32px] flex items-center gap-6 transition-all group relative text-left ${
-                        parkedCars[car.number] 
-                          ? 'opacity-40 cursor-not-allowed grayscale' 
-                          : 'border-gray-100 hover:border-blue-500 hover:shadow-2xl hover:shadow-blue-100'
-                      }`}
-                    >
-                      <CarIcon model={car.model} color={car.color} className="shrink-0" />
-                      <div className="flex-1">
-                        <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">{car.model}</div>
-                        <div className="text-2xl font-black text-gray-800 tracking-tight group-hover:text-blue-600 transition-colors">{car.number}</div>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-2xl group-hover:bg-blue-50 transition-colors">
-                        <ArrowRight className="text-gray-300 group-hover:text-blue-500" />
-                      </div>
-                      {parkedCars[car.number] && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-[32px]">
-                          <span className="bg-orange-500 text-white text-xs font-black px-4 py-2 rounded-full uppercase tracking-widest shadow-lg">Already Parked</span>
+                  {filteredCars.length > 0 ? (
+                    filteredCars.map(car => (
+                      <motion.button
+                        layout
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        key={car.number}
+                        disabled={!!parkedCars[car.number]}
+                        onClick={() => {
+                          setSelectedCar(car);
+                          setFormData(prev => ({ 
+                            ...prev, 
+                            carNumber: car.number,
+                            remarks: `${car.model}${car.notes && car.notes !== '-' ? ` (${car.notes})` : ''}`
+                          }));
+                        }}
+                        className={`p-6 bg-white border-2 rounded-[32px] flex items-center gap-6 transition-all group relative text-left ${
+                          parkedCars[car.number] 
+                            ? 'opacity-40 cursor-not-allowed grayscale' 
+                            : 'border-gray-100 hover:border-blue-500 hover:shadow-2xl hover:shadow-blue-100'
+                        }`}
+                      >
+                        <CarIcon model={car.model} color={car.color} className="shrink-0" />
+                        <div className="flex-1">
+                          <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">
+                            {car.model} {car.notes && car.notes !== '-' ? `• ${car.notes}` : ''}
+                          </div>
+                          <NumberPlate number={car.number} />
                         </div>
-                      )}
-                    </motion.button>
-                  ))}
+                        <div className="bg-gray-50 p-3 rounded-2xl group-hover:bg-blue-50 transition-colors">
+                          <ArrowRight className="text-gray-300 group-hover:text-blue-500" />
+                        </div>
+                        {parkedCars[car.number] && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-[32px]">
+                            <span className="bg-orange-500 text-white text-xs font-black px-4 py-2 rounded-full uppercase tracking-widest shadow-lg">Already Parked</span>
+                          </div>
+                        )}
+                      </motion.button>
+                    ))
+                  ) : (
+                    <div className="col-span-full py-12 text-center bg-white rounded-[32px] border-4 border-dashed border-gray-100">
+                      <Car className="mx-auto text-gray-200 mb-4" size={48} />
+                      <p className="text-gray-400 font-bold uppercase tracking-widest">No cars found</p>
+                      <p className="text-gray-300 text-sm">Add a new car or try another search</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
