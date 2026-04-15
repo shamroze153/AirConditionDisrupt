@@ -26,7 +26,8 @@ function initializeSheets(ss) {
     'Seating_Plan': ['No', 'location', 'Campus Code', 'Floor Tag', 'Room No. Tag', 'Work Station Tag', 'Emp Name', 'Emp Code', 'Type of Employee', 'Room Code', 'Room Code - Dashboard', 'Seat Code', 'BU', 'Department', 'Category', 'Status', 'snapshot_date', 'FINAL-DEPT'],
     'Master_Tools': ['Category', 'Name', 'Quantity', 'Technician'],
     'Valet_Log': ['Timestamp_IN', 'Date', 'CarNumber', 'CardNumber', 'ParkingSlot', 'Driver_IN', 'Timestamp_OUT', 'Driver_OUT', 'Status', 'Remarks'],
-    'SoftFM_Weekly_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks']
+    'SoftFM_Weekly_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks'],
+    'Security_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'SubCategory', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks', 'AccessControl', 'VisitorManagement', 'MaterialMovement', 'SecurityAwareness', 'Discipline', 'Communication', 'TeamManagement', 'Inspection', 'IncidentHandling', 'Reporting', 'WeaponHandling', 'Training', 'FleetHandling', 'Liaison', 'RiskIdentification', 'EmergencyResponse', 'FirstAidCases', 'EquipmentReadiness', 'MedicineControl', 'HealthMonitoring', 'HygieneClinic']
   };
 
   Object.keys(headers).forEach(sheetName => {
@@ -61,7 +62,7 @@ function doGet(e) {
   const cache = CacheService.getScriptCache();
   const cacheKey = action + "_" + category;
   
-  if (['get_stats', 'get_global_stats', 'get_tools', 'get_assets', 'get_softfm_evaluations', 'get_valet_data'].includes(action)) {
+  if (['get_stats', 'get_global_stats', 'get_tools', 'get_assets', 'get_softfm_evaluations', 'get_security_evaluations', 'get_valet_data'].includes(action)) {
     const cached = cache.get(cacheKey);
     if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
   }
@@ -84,6 +85,46 @@ function doGet(e) {
           autoDailyScore: Number(r[9]),
           finalScore: Number(r[10]),
           remarks: String(r[11] || '').trim()
+        }));
+        break;
+
+      case 'get_security_evaluations':
+        const securityData = getSheetData(ss, 'Security_Evaluation');
+        responseData = securityData.map(r => ({
+          timestamp: r[0],
+          week: r[1],
+          name: String(r[2] || '').trim(),
+          department: String(r[3] || '').trim(),
+          subCategory: String(r[4] || '').trim(),
+          attendance: Number(r[5]),
+          punctuality: Number(r[6]),
+          behavior: Number(r[7]),
+          performance: Number(r[8]),
+          supervisorScore: Number(r[9]),
+          autoDailyScore: Number(r[10]),
+          finalScore: Number(r[11]),
+          remarks: String(r[12] || '').trim(),
+          accessControl: Number(r[13]),
+          visitorManagement: Number(r[14]),
+          materialMovement: Number(r[15]),
+          securityAwareness: Number(r[16]),
+          discipline: Number(r[17]),
+          communication: Number(r[18]),
+          teamManagement: Number(r[19]),
+          inspection: Number(r[20]),
+          incidentHandling: Number(r[21]),
+          reporting: Number(r[22]),
+          weaponHandling: Number(r[23]),
+          training: Number(r[24]),
+          fleetHandling: Number(r[25]),
+          liaison: Number(r[26]),
+          riskIdentification: Number(r[27]),
+          emergencyResponse: Number(r[28]),
+          firstAidCases: Number(r[29]),
+          equipmentReadiness: Number(r[30]),
+          medicineControl: Number(r[31]),
+          healthMonitoring: Number(r[32]),
+          hygieneClinic: Number(r[33])
         }));
         break;
 
@@ -338,6 +379,7 @@ function doPost(e) {
   cache.remove("get_tools_" + category);
   cache.remove("get_valet_data_VALET");
   cache.remove("get_softfm_evaluations_AC"); // Soft FM evaluations are global but we use AC as default category for global actions
+  cache.remove("get_security_evaluations_AC");
 
   try {
     switch(action) {
@@ -691,6 +733,45 @@ function doPost(e) {
           Number(params.autoDailyScore),
           Number(params.finalScore),
           params.remarks
+        ]);
+        break;
+
+      case 'submit_security_evaluation':
+        ss.getSheetByName('Security_Evaluation').appendRow([
+          new Date(),
+          params.week,
+          params.name,
+          params.department,
+          params.subCategory || '',
+          Number(params.attendance),
+          Number(params.punctuality),
+          Number(params.behavior),
+          Number(params.performance),
+          Number(params.supervisorScore),
+          Number(params.autoDailyScore),
+          Number(params.finalScore),
+          params.remarks,
+          Number(params.accessControl || 0),
+          Number(params.visitorManagement || 0),
+          Number(params.materialMovement || 0),
+          Number(params.securityAwareness || 0),
+          Number(params.discipline || 0),
+          Number(params.communication || 0),
+          Number(params.teamManagement || 0),
+          Number(params.inspection || 0),
+          Number(params.incidentHandling || 0),
+          Number(params.reporting || 0),
+          Number(params.weaponHandling || 0),
+          Number(params.training || 0),
+          Number(params.fleetHandling || 0),
+          Number(params.liaison || 0),
+          Number(params.riskIdentification || 0),
+          Number(params.emergencyResponse || 0),
+          Number(params.firstAidCases || 0),
+          Number(params.equipmentReadiness || 0),
+          Number(params.medicineControl || 0),
+          Number(params.healthMonitoring || 0),
+          Number(params.hygieneClinic || 0)
         ]);
         break;
 
