@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Star, Clock, UserCheck, MessageSquare, ArrowLeft, Save, TrendingUp, Award, User, Bike, Car, CheckCircle2, XCircle, Calculator } from 'lucide-react';
+import { Users, Star, Clock, UserCheck, MessageSquare, ArrowLeft, Save, TrendingUp, Award, User, Bike, Car, CheckCircle2, XCircle, Calculator, Trophy, Medal, BarChart3, Search } from 'lucide-react';
 import { SoftFMEvaluation, SoftFMStaff, ValetLogEntry } from '../types';
 import { submitSoftFMEvaluation, submitSecurityEvaluation, fetchSoftFMEvaluations, fetchSecurityEvaluations, fetchValetData } from '../services/api';
 import { SOFT_FM_STAFF } from '../constants';
@@ -35,7 +35,7 @@ const StarRating: React.FC<{ value: number, onChange: (val: number) => void, lab
 );
 
 export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type }) => {
-  const [view, setView] = useState<'categories' | 'staff' | 'sub-category' | 'form' | 'self-view'>('categories');
+  const [view, setView] = useState<'dashboard' | 'categories' | 'staff' | 'sub-category' | 'form' | 'self-view'>(type === 'security' ? 'dashboard' : 'categories');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<'Parking' | 'Office' | null>(null);
   
@@ -352,21 +352,202 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     return { text: 'Needs Improvement', color: 'text-red-600 bg-red-50' };
   };
 
+  const getRankings = () => {
+    const totals: Record<string, { points: number, count: number, dept: string }> = {};
+    evaluations.forEach(e => {
+      if (!totals[e.name]) {
+        totals[e.name] = { points: 0, count: 0, dept: e.department };
+      }
+      totals[e.name].points += e.finalScore;
+      totals[e.name].count += 1;
+    });
+
+    return Object.entries(totals)
+      .map(([name, data]) => ({
+        name,
+        ...data,
+        average: data.points / data.count
+      }))
+      .sort((a, b) => b.points - a.points);
+  };
+
+  const rankings = getRankings();
+
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-4 md:p-8 pb-32">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <button 
-            onClick={onBack}
+            onClick={() => {
+              if (view === 'dashboard') onBack();
+              else if (view === 'categories' && type === 'security') setView('dashboard');
+              else if (view === 'categories') onBack();
+              else if (view === 'staff') setView('categories');
+              else if (view === 'sub-category') setView('staff');
+              else if (view === 'form') {
+                if (selectedCategory === 'Gate keeper') setView('sub-category');
+                else setView('staff');
+              }
+              else if (view === 'self-view') {
+                if (type === 'security') setView('dashboard');
+                else setView('categories');
+              }
+            }}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft size={20} />
-            <span className="font-medium">Back to Excellence Hub</span>
+            <span className="font-medium">
+              {view === 'dashboard' || (view === 'categories' && type === 'soft-fm') ? 'Back to Excellence Hub' : 'Back'}
+            </span>
           </button>
           <h1 className="text-2xl font-bold text-gray-900">{type === 'soft-fm' ? 'Soft FM' : 'Security'} Scorecard</h1>
         </div>
 
         <AnimatePresence mode="wait">
+          {view === 'dashboard' && (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              {/* Stats Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+                    <Trophy size={24} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Top Performer</p>
+                    <p className="text-lg font-bold text-gray-900 truncate max-w-[150px]">
+                      {rankings[0]?.name || 'N/A'}
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                    <Users size={24} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Total Evaluated</p>
+                    <p className="text-lg font-bold text-gray-900">{rankings.length}</p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                    <BarChart3 size={24} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Avg. Score</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {rankings.length > 0 
+                        ? (rankings.reduce((acc, curr) => acc + curr.average, 0) / rankings.length).toFixed(1)
+                        : '0'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Leaderboard */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <Award className="text-indigo-600" size={24} />
+                    Performance Leaderboard
+                  </h3>
+                  <button
+                    onClick={() => setView('categories')}
+                    className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-sm flex items-center gap-2"
+                  >
+                    <Save size={18} />
+                    Evaluate Staff
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Rank</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Staff Name</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Department</th>
+                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Total Points</th>
+                        <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Avg. Score</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {rankings.length > 0 ? (
+                        rankings.map((staff, index) => (
+                          <tr key={staff.name} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                {index === 0 && <Medal className="text-amber-400" size={18} />}
+                                {index === 1 && <Medal className="text-gray-400" size={18} />}
+                                {index === 2 && <Medal className="text-amber-700" size={18} />}
+                                <span className={`font-bold ${index < 3 ? 'text-indigo-600' : 'text-gray-500'}`}>
+                                  #{index + 1}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="font-bold text-gray-900">{staff.name}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                                {staff.dept}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                              <div className="text-lg font-black text-indigo-600">{staff.points}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                              <div className="text-sm font-medium text-gray-500">{staff.average.toFixed(1)}</div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                            No evaluation data available yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Self View Shortcut */}
+              <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-lg font-bold text-indigo-900">Check Your Individual Score</h4>
+                    <p className="text-indigo-700 text-sm">Enter your name to see your detailed performance history.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Your Name..."
+                      value={searchName}
+                      onChange={(e) => setSearchName(e.target.value)}
+                      className="flex-1 md:w-64 px-4 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button 
+                      onClick={() => {
+                        handleCheckScore();
+                        setView('self-view');
+                      }}
+                      className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                    >
+                      <Search size={18} />
+                      View
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {view === 'categories' && (
             <motion.div 
               key="categories"
@@ -375,8 +556,17 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
               exit={{ opacity: 0, y: -20 }}
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
-              <div className="col-span-full mb-4">
+              <div className="col-span-full mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-700">Select Category</h2>
+                {type === 'security' && (
+                  <button
+                    onClick={() => setView('dashboard')}
+                    className="flex items-center gap-2 text-indigo-600 font-bold hover:text-indigo-700 transition-colors text-sm"
+                  >
+                    <Trophy size={16} />
+                    View Leaderboard
+                  </button>
+                )}
               </div>
               {categories.map((cat) => (
                 <button
@@ -862,7 +1052,10 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                   <h3 className="text-xl font-bold text-gray-900 mb-2">No Evaluation Found</h3>
                   <p className="text-gray-500 mb-6">We couldn't find any recent performance records for "{searchName}".</p>
                   <button 
-                    onClick={() => setView('categories')}
+                    onClick={() => {
+                      if (type === 'security') setView('dashboard');
+                      else setView('categories');
+                    }}
                     className="text-indigo-600 font-bold hover:underline"
                   >
                     Try another name
