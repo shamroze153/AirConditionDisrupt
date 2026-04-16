@@ -6,6 +6,8 @@ import { SoftFMEvaluation, SoftFMStaff, ValetLogEntry } from '../types';
 import { submitSoftFMEvaluation, submitSecurityEvaluation, fetchSoftFMEvaluations, fetchSecurityEvaluations, fetchValetData } from '../services/api';
 import { SOFT_FM_STAFF } from '../constants';
 
+import { generateSecurityInsights } from '../services/aiService';
+
 interface SoftFMViewProps {
   onBack: () => void;
   isAdmin: boolean;
@@ -34,61 +36,6 @@ const StarRating: React.FC<{ value: number, onChange: (val: number) => void, lab
   </div>
 );
 
-const WeeklyAttendance: React.FC<{ 
-  days: boolean[], 
-  onChange: (days: boolean[]) => void,
-  extraHours: number,
-  onExtraHoursChange: (val: number) => void
-}> = ({ days, onChange, extraHours, onExtraHoursChange }) => {
-  const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  const workedDays = days.filter(Boolean).length;
-  const workedHours = workedDays * 9;
-
-  const toggleDay = (index: number) => {
-    const newDays = [...days];
-    newDays[index] = !newDays[index];
-    onChange(newDays);
-  };
-
-  return (
-    <div className="space-y-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
-      <label className="block text-sm font-bold text-gray-700">Weekly Attendance</label>
-      <div className="flex justify-between gap-1">
-        {dayLabels.map((label, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => toggleDay(i)}
-            className={`w-10 h-10 rounded-xl font-bold transition-all flex items-center justify-center border ${
-              days[i] 
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
-                : 'bg-white text-gray-400 border-gray-200 hover:border-indigo-300'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-4 pt-2">
-        <div className="bg-white p-3 rounded-xl border border-gray-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase">Worked Hours</p>
-          <p className="text-lg font-black text-indigo-600">{workedHours}h <span className="text-xs text-gray-400 font-normal">({workedDays} days)</span></p>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-gray-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase">Extra Hours</p>
-          <input 
-            type="number"
-            value={extraHours}
-            onChange={(e) => onExtraHoursChange(parseInt(e.target.value) || 0)}
-            className="w-full text-lg font-black text-amber-600 focus:outline-none bg-transparent"
-            placeholder="0"
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
 export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type }) => {
   const [view, setView] = useState<'dashboard' | 'categories' | 'staff' | 'sub-category' | 'form' | 'self-view'>(type === 'security' ? 'dashboard' : 'categories');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -103,9 +50,13 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
   const [selfEval, setSelfEval] = useState<SoftFMEvaluation | null>(null);
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
   const [valetLogs, setValetLogs] = useState<ValetLogEntry[]>([]);
-  const [editingStaff, setEditingStaff] = useState<{ name: string, dept: string } | null>(null);
+  const [editingStaff, setEditingStaff] = useState<{ name: string, dept: string, months: string[] } | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [adjustmentPoints, setAdjustmentPoints] = useState(0);
   const [adjustmentRemarks, setAdjustmentRemarks] = useState('');
+
+  const [aiInsight, setAiInsight] = useState<string | null>(null);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
   const [formData, setFormData] = useState({
     attendance: 0,
@@ -113,9 +64,8 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     behavior: 0,
     performance: 0,
     manualAdjustment: 0,
-    workingDays: 1,
+    workingDays: 26, // Default to a standard month
     remarks: '',
-    weeklyAttendance: [false, false, false, false, false, false, false],
     extraHours: 0,
     // Security specific KPIs (1-5 stars)
     accessControl: 0,
@@ -140,7 +90,22 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     equipmentReadiness: 0,
     medicineControl: 0,
     healthMonitoring: 0,
-    hygieneClinic: 0
+    hygieneClinic: 0,
+    // Soft FM specific KPIs
+    visitorLog: 0,
+    riderLog: 0,
+    pettyCash: 0,
+    courierLog: 0,
+    consumableLog: 0,
+    numberOfRides: 0,
+    kmConsumed: 0,
+    petrolConsumed: 0,
+    kitchenHygiene: 0,
+    meetingRoomReadiness: 0,
+    utilityManagement: 0,
+    cleaningQuality: 0,
+    restroomHygiene: 0,
+    wasteManagement: 0
   });
 
   useEffect(() => {
@@ -231,54 +196,90 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
 
   const calculateScores = () => {
     let supervisorScore = 0;
-    const workedDays = formData.weeklyAttendance.filter(Boolean).length;
+    const getWeightedPoints = (stars: number, weight: number) => (stars / 5) * weight;
     
-    if (type === 'security') {
-      // 1 star = 2 points, 5 stars = 10 points
-      const getPoints = (stars: number) => stars * 2;
-      
-      // Attendance score: (Worked Hours + Extra Hours) / (Standard 54h) * 10
-      const totalHours = (workedDays * 9) + formData.extraHours;
-      const attendanceScore = Math.min(10, (totalHours / 54) * 10);
-      const combinedAttendancePunctuality = (attendanceScore + getPoints(formData.punctuality)) / 2;
+    // Monthly Attendance Score: (Working Days * 9 + Extra Hours) / (Standard 234h) * 15
+    const totalHours = (formData.workingDays * 9) + formData.extraHours;
+    const attendanceScore = Math.min(15, (totalHours / 234) * 15);
 
+    if (type === 'security') {
       if (selectedCategory === 'Gate keeper') {
-        supervisorScore = combinedAttendancePunctuality;
-        supervisorScore += getPoints(formData.accessControl);
-        supervisorScore += getPoints(formData.visitorManagement);
-        supervisorScore += getPoints(formData.materialMovement);
-        supervisorScore += getPoints(formData.securityAwareness);
-        supervisorScore += getPoints(formData.performance);
-        supervisorScore += getPoints(formData.discipline);
-        supervisorScore += getPoints(formData.communication);
+        const materialWeight = selectedSubCategory === 'Parking' ? 20 : 10;
+        const visitorWeight = selectedSubCategory === 'Parking' ? 0 : 10;
+
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.accessControl, 30);
+        supervisorScore += getWeightedPoints(formData.visitorManagement, visitorWeight);
+        supervisorScore += getWeightedPoints(formData.materialMovement, materialWeight);
+        supervisorScore += getWeightedPoints(formData.training, 5);
+        supervisorScore += getWeightedPoints(formData.securityAwareness, 5);
+        supervisorScore += getWeightedPoints(formData.discipline, 15);
+        supervisorScore += getWeightedPoints(formData.communication, 10);
       } else if (selectedCategory === 'Security Supervisor') {
-        supervisorScore = combinedAttendancePunctuality;
-        supervisorScore += getPoints(formData.teamManagement);
-        supervisorScore += getPoints(formData.inspection);
-        supervisorScore += getPoints(formData.incidentHandling);
-        supervisorScore += getPoints(formData.reporting);
-        supervisorScore += getPoints(formData.weaponHandling);
-        supervisorScore += getPoints(formData.training);
-        supervisorScore += getPoints(formData.fleetHandling);
-        supervisorScore += getPoints(formData.liaison);
-        supervisorScore += getPoints(formData.riskIdentification);
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.teamManagement, 10);
+        supervisorScore += getWeightedPoints(formData.inspection, 10);
+        supervisorScore += getWeightedPoints(formData.incidentHandling, 10);
+        supervisorScore += getWeightedPoints(formData.reporting, 5);
+        supervisorScore += getWeightedPoints(formData.weaponHandling, 10);
+        supervisorScore += getWeightedPoints(formData.training, 5);
+        supervisorScore += getWeightedPoints(formData.fleetHandling, 10);
+        supervisorScore += getWeightedPoints(formData.liaison, 10);
+        supervisorScore += getWeightedPoints(formData.riskIdentification, 15);
       } else if (selectedCategory === 'Paramedic Staff') {
-        supervisorScore = combinedAttendancePunctuality;
-        supervisorScore += getPoints(formData.emergencyResponse);
-        supervisorScore += getPoints(formData.firstAidCases);
-        supervisorScore += getPoints(formData.equipmentReadiness);
-        supervisorScore += getPoints(formData.medicineControl);
-        supervisorScore += getPoints(formData.healthMonitoring);
-        supervisorScore += getPoints(formData.training);
-        supervisorScore += getPoints(formData.reporting);
-        supervisorScore += getPoints(formData.hygieneClinic);
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.emergencyResponse, 15);
+        supervisorScore += getWeightedPoints(formData.firstAidCases, 10);
+        supervisorScore += getWeightedPoints(formData.equipmentReadiness, 10);
+        supervisorScore += getWeightedPoints(formData.medicineControl, 10);
+        supervisorScore += getWeightedPoints(formData.healthMonitoring, 10);
+        supervisorScore += getWeightedPoints(formData.training, 10);
+        supervisorScore += getWeightedPoints(formData.reporting, 10);
+        supervisorScore += getWeightedPoints(formData.hygieneClinic, 10);
       }
     } else {
-      supervisorScore = formData.attendance + formData.punctuality + formData.behavior + formData.performance;
+      // Soft FM Logic
+      if (selectedCategory === 'Receptionist') {
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.behavior, 15);
+        supervisorScore += getWeightedPoints(formData.visitorLog, 15);
+        supervisorScore += getWeightedPoints(formData.riderLog, 15);
+        supervisorScore += getWeightedPoints(formData.pettyCash, 10);
+        supervisorScore += getWeightedPoints(formData.courierLog, 15);
+        supervisorScore += getWeightedPoints(formData.consumableLog, 15);
+      } else if (selectedCategory === 'Rider') {
+        supervisorScore = attendanceScore;
+        // For Rider, we have some numerical inputs. We'll treat them as direct points for now or normalized.
+        // User said: rides (nos), behavior (stars), km (nos), petrol (nos)
+        // Let's assume the user enters a score out of 100 for the numerical ones, or we just use them.
+        // To keep it consistent with 100% weightage, we'll treat the numerical inputs as "Score out of 100"
+        supervisorScore += (formData.numberOfRides / 100) * 25;
+        supervisorScore += getWeightedPoints(formData.behavior, 15);
+        supervisorScore += (formData.kmConsumed / 100) * 20;
+        supervisorScore += (formData.petrolConsumed / 100) * 25;
+      } else if (selectedCategory === 'Office Boy') {
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.behavior, 20);
+        supervisorScore += getWeightedPoints(formData.kitchenHygiene, 25);
+        supervisorScore += getWeightedPoints(formData.meetingRoomReadiness, 20);
+        supervisorScore += getWeightedPoints(formData.utilityManagement, 20);
+      } else if (selectedCategory === 'Janitorial') {
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.behavior, 20);
+        supervisorScore += getWeightedPoints(formData.cleaningQuality, 25);
+        supervisorScore += getWeightedPoints(formData.restroomHygiene, 20);
+        supervisorScore += getWeightedPoints(formData.wasteManagement, 20);
+      } else if (selectedCategory === 'Valet') {
+        supervisorScore = attendanceScore;
+        supervisorScore += getWeightedPoints(formData.behavior, 25);
+        supervisorScore += getWeightedPoints(formData.performance, 60);
+      } else {
+        supervisorScore = formData.attendance + formData.punctuality + formData.behavior + formData.performance;
+      }
     }
 
     const valetPoints = selectedStaff ? calculateValetPoints(selectedStaff.name) : 0;
-    const autoDailyScore = (10 * (type === 'security' ? workedDays : formData.workingDays)); 
+    const autoDailyScore = (type === 'security' ? 0 : (2 * formData.workingDays)); 
     const finalScore = supervisorScore + autoDailyScore + formData.manualAdjustment;
     return { supervisorScore, autoDailyScore, valetPoints, finalScore };
   };
@@ -301,12 +302,11 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         finalRemarks = `[Assignment: ${selectedSubCategory}] ${finalRemarks}`;
       }
 
-      const workedDays = formData.weeklyAttendance.filter(Boolean).length;
-      const totalHours = (workedDays * 9) + formData.extraHours;
-      const attendanceScore = type === 'security' ? Math.min(10, (totalHours / 54) * 10) : formData.attendance;
+      const totalHours = (formData.workingDays * 9) + formData.extraHours;
+      const attendanceScore = type === 'security' ? Math.min(15, (totalHours / 234) * 15) : formData.attendance;
 
       const newEval: Omit<SoftFMEvaluation, 'timestamp'> = {
-        week: `Log ${new Date().toLocaleDateString()}`,
+        week: `Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`,
         name: selectedStaff.name,
         department: selectedCategory,
         subCategory: selectedSubCategory || undefined,
@@ -319,7 +319,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         finalScore,
         remarks: finalRemarks,
         extraHours: type === 'security' ? formData.extraHours : undefined,
-        weeklyAttendance: type === 'security' ? JSON.stringify(formData.weeklyAttendance) : undefined,
+        weeklyAttendance: type === 'security' ? String(formData.workingDays) : undefined,
         accessControl: formData.accessControl,
         visitorManagement: formData.visitorManagement,
         materialMovement: formData.materialMovement,
@@ -425,7 +425,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     try {
       setSubmitting(true);
       const newEval: Omit<SoftFMEvaluation, 'timestamp'> = {
-        week: `Manual Adjustment ${new Date().toLocaleDateString()}`,
+        week: type === 'security' ? (selectedMonth || `Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`) : `Manual Adjustment ${new Date().toLocaleDateString()}`,
         name: editingStaff.name,
         department: editingStaff.dept,
         attendance: 0,
@@ -529,6 +529,31 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                   <p className="text-indigo-100 text-sm">Managing ranking for {editingStaff.name}</p>
                 </div>
                 <div className="p-6 space-y-4">
+                  {type === 'security' && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-gray-700">Select Month to Adjust</label>
+                      <select 
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-bold text-gray-700"
+                      >
+                        {editingStaff.months.length > 0 ? (
+                          editingStaff.months.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))
+                        ) : (
+                          <option value={`Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`}>
+                            {`Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`}
+                          </option>
+                        )}
+                        {!editingStaff.months.includes(`Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`) && (
+                          <option value={`Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`}>
+                            New Month: {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                          </option>
+                        )}
+                      </select>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-gray-700">Point Adjustment (e.g. +50 or -20)</label>
                     <input 
@@ -582,7 +607,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                     <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
                     <div className="absolute inset-0 w-3 h-3 bg-emerald-500 rounded-full animate-ping opacity-75"></div>
                   </div>
-                  <span className="text-sm font-bold text-gray-600 uppercase tracking-wider">Live Security Feed</span>
+                  <span className="text-sm font-bold text-gray-600 uppercase tracking-wider">Security and HSE Metric</span>
                   <button 
                     onClick={() => loadEvaluations()}
                     disabled={loading}
@@ -640,9 +665,9 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                 </motion.div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 {/* Leaderboard */}
-                <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
                   <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                     <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                       <ShieldCheck className="text-indigo-600" size={24} />
@@ -663,7 +688,6 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Rank</th>
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Personnel</th>
                           <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Points</th>
-                          <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Index</th>
                           <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
                         </tr>
                       </thead>
@@ -690,16 +714,16 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                                 </div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-right">
-                                <div className="text-lg font-black text-indigo-600">{staff.points}</div>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right">
-                                <div className="inline-flex items-center px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-[10px] font-black group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
-                                  {staff.average.toFixed(1)}
-                                </div>
+                                <div className="text-lg font-black text-indigo-600">{staff.points.toFixed(1)}</div>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center">
                                 <button
-                                  onClick={() => setEditingStaff({ name: staff.name, dept: staff.dept })}
+                                  onClick={() => {
+                                    const staffEvals = evaluations.filter(e => e.name === staff.name);
+                                    const months = Array.from(new Set(staffEvals.map(e => e.week)));
+                                    setEditingStaff({ name: staff.name, dept: staff.dept, months });
+                                    setSelectedMonth(months[0] || `Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`);
+                                  }}
                                   className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                   title="Edit Points"
                                 >
@@ -719,74 +743,39 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                     </table>
                   </div>
                 </div>
-
-                {/* Live Activity Feed */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-                  <div className="p-6 border-b border-gray-100 bg-gray-50/50">
-                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                      <Activity className="text-rose-500" size={20} />
-                      Live Activity
-                    </h3>
-                  </div>
-                  <div className="p-4 space-y-4 overflow-y-auto max-h-[500px] flex-1">
-                    {evaluations.length > 0 ? (
-                      evaluations.slice(0, 10).map((evalItem, idx) => (
-                        <div key={idx} className="flex gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-100">
-                          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center shrink-0 font-bold text-xs">
-                            {evalItem.name.charAt(0)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start mb-1">
-                              <p className="text-sm font-bold text-gray-900 truncate">{evalItem.name}</p>
-                              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                                +{evalItem.finalScore}
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-gray-500 line-clamp-1 mb-1">{evalItem.remarks}</p>
-                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">
-                              {new Date(evalItem.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {evalItem.department}
-                            </p>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-12 text-gray-400 text-sm font-medium">
-                        Waiting for live updates...
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
 
               {/* Self View Shortcut */}
-              <div className="bg-indigo-600 p-8 rounded-3xl shadow-xl shadow-indigo-200 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
-                <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
-                  <div className="text-white">
-                    <h4 className="text-2xl font-black mb-2">Personnel Access Portal</h4>
-                    <p className="text-indigo-100 font-medium opacity-80">Access your individual performance metrics and historical data.</p>
-                  </div>
-                  <div className="flex gap-2 w-full md:w-auto">
-                    <input 
-                      type="text" 
-                      placeholder="Enter Personnel Name..."
-                      value={searchName}
-                      onChange={(e) => setSearchName(e.target.value)}
-                      className="flex-1 md:w-72 px-6 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-bold"
-                    />
-                    <button 
-                      onClick={() => {
-                        handleCheckScore();
-                        setView('self-view');
-                      }}
-                      className="bg-white text-indigo-600 px-8 py-4 rounded-2xl font-black hover:bg-indigo-50 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap"
-                    >
-                      <Search size={20} />
-                      Access
-                    </button>
+              {type !== 'security' && (
+                <div className="bg-indigo-600 p-8 rounded-3xl shadow-xl shadow-indigo-200 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+                  <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="text-white">
+                      <h4 className="text-2xl font-black mb-2">Personnel Access Portal</h4>
+                      <p className="text-indigo-100 font-medium opacity-80">Access your individual performance metrics and historical data.</p>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto">
+                      <input 
+                        type="text" 
+                        placeholder="Enter Personnel Name..."
+                        value={searchName}
+                        onChange={(e) => setSearchName(e.target.value)}
+                        className="flex-1 md:w-72 px-6 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-bold"
+                      />
+                      <button 
+                        onClick={() => {
+                          handleCheckScore();
+                          setView('self-view');
+                        }}
+                        className="bg-white text-indigo-600 px-8 py-4 rounded-2xl font-black hover:bg-indigo-50 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap"
+                      >
+                        <Search size={20} />
+                        Access
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </motion.div>
           )}
 
@@ -826,32 +815,34 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                 </button>
               ))}
               
-              <div className="col-span-full mt-8 pt-8 border-t border-gray-200">
-                <div className="bg-indigo-50 p-6 rounded-2xl">
-                  <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                    <User size={20} />
-                    Staff Self-View
-                  </h3>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="Enter your name..."
-                      value={searchName}
-                      onChange={(e) => setSearchName(e.target.value)}
-                      className="flex-1 px-4 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <button 
-                      onClick={() => {
-                        handleCheckScore();
-                        setView('self-view');
-                      }}
-                      className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
-                    >
-                      Check Score
-                    </button>
+              {type !== 'security' && (
+                <div className="col-span-full mt-8 pt-8 border-t border-gray-200">
+                  <div className="bg-indigo-50 p-6 rounded-2xl">
+                    <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                      <User size={20} />
+                      Staff Self-View
+                    </h3>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Enter your name..."
+                        value={searchName}
+                        onChange={(e) => setSearchName(e.target.value)}
+                        className="flex-1 px-4 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <button 
+                        onClick={() => {
+                          handleCheckScore();
+                          setView('self-view');
+                        }}
+                        className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+                      >
+                        Check Score
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </motion.div>
           )}
 
@@ -869,20 +860,6 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                   </button>
                   <h2 className="text-xl font-bold text-gray-900">{selectedCategory} Staff</h2>
                 </div>
-                {selectedCategory === 'Valet' && (
-                  <div className="hidden md:flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-xs font-medium border border-indigo-100">
-                    <Calculator size={14} />
-                    Valet points are recorded LIVE in the sheet per action.
-                  </div>
-                )}
-                <button
-                  onClick={handleBulkAttendance}
-                  disabled={submitting}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-sm"
-                >
-                  <Save size={18} />
-                  Submit Attendance Points
-                </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {(SOFT_FM_STAFF[selectedCategory!] || []).map((staff) => (
@@ -914,19 +891,6 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                         <p className="text-sm text-gray-500">{selectedCategory}</p>
                       </div>
                     </button>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleAttendance(staff.code)}
-                        className={`px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all flex items-center gap-1.5 ${
-                          attendance[staff.code] 
-                            ? 'bg-green-100 text-green-700 border border-green-200' 
-                            : 'bg-gray-100 text-gray-500 border border-gray-200'
-                        }`}
-                      >
-                        {attendance[staff.code] ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                        {attendance[staff.code] ? 'Present' : 'Absent'}
-                      </button>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -982,7 +946,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
             >
               <div className="bg-indigo-600 p-6 text-white">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-indigo-100">Excellence Hub: Performance Log</span>
+                  <span className="text-indigo-100">Excellence Hub: Security and HSE Metric</span>
                   <span className="bg-indigo-500 px-3 py-1 rounded-full text-xs font-bold">{new Date().toLocaleDateString()}</span>
                 </div>
                 <h2 className="text-2xl font-bold">{selectedStaff?.name} <span className="text-indigo-200 text-lg font-normal">({selectedStaff?.code})</span></h2>
@@ -990,163 +954,194 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
               </div>
 
               <div className="p-6 space-y-6">
-                {type === 'security' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
-                    <div className="col-span-full bg-amber-50 p-4 rounded-xl border border-amber-100">
-                      <h3 className="text-lg font-bold text-amber-900 flex items-center gap-2">
-                        <Award className="text-amber-500" size={20} />
-                        Security Performance Metrics: {selectedCategory}
-                      </h3>
-                      <p className="text-xs text-amber-700 mt-1">Rate each KPI from 1 to 5 stars (1★ = 2pts, 5★ = 10pts).</p>
-                    </div>
-                    
-                    {selectedCategory === 'Gate keeper' && (
-                      <>
-                        <div className="col-span-full">
-                          <WeeklyAttendance 
-                            days={formData.weeklyAttendance}
-                            onChange={(days) => setFormData({...formData, weeklyAttendance: days})}
-                            extraHours={formData.extraHours}
-                            onExtraHoursChange={(val) => setFormData({...formData, extraHours: val})}
-                          />
-                        </div>
-
-                        <StarRating 
-                          label="Punctuality (On-time shift reporting)"
-                          value={formData.punctuality}
-                          onChange={(val) => setFormData({...formData, punctuality: val})}
-                        />
-
-                        {selectedSubCategory === 'Office' ? (
-                          <StarRating 
-                            label="Access Control (Proper entry/exit log maintained)"
-                            value={formData.accessControl}
-                            onChange={(val) => setFormData({...formData, accessControl: val})}
-                          />
-                        ) : null}
-
-                        {selectedSubCategory === 'Office' && (
-                          <StarRating 
-                            label="Visitor Management"
-                            value={formData.visitorManagement}
-                            onChange={(val) => setFormData({...formData, visitorManagement: val})}
-                          />
-                        )}
-
-                        {selectedSubCategory === 'Parking' && (
-                          <StarRating 
-                            label="Proper Gate Pass Verification"
-                            value={formData.materialMovement}
-                            onChange={(val) => setFormData({...formData, materialMovement: val})}
-                          />
-                        )}
-
-                        {selectedSubCategory === 'Office' ? (
-                          <StarRating 
-                            label="Material Movement (General)"
-                            value={formData.materialMovement}
-                            onChange={(val) => setFormData({...formData, materialMovement: val})}
-                          />
-                        ) : (
-                          <StarRating 
-                            label="Security Awareness"
-                            value={formData.securityAwareness}
-                            onChange={(val) => setFormData({...formData, securityAwareness: val})}
-                          />
-                        )}
-
-                        <StarRating 
-                          label="Security observation"
-                          value={formData.performance}
-                          onChange={(val) => setFormData({...formData, performance: val})}
-                        />
-
-                        <StarRating 
-                          label={selectedSubCategory === 'Office' ? "Discipline" : "Discipline (Uniform & Conduct)"}
-                          value={formData.discipline}
-                          onChange={(val) => setFormData({...formData, discipline: val})}
-                        />
-
-                        <StarRating 
-                          label="Communication (Coordination with control room)"
-                          value={formData.communication}
-                          onChange={(val) => setFormData({...formData, communication: val})}
-                        />
-                      </>
-                    )}
-
-                    {selectedCategory === 'Security Supervisor' && (
-                      <>
-                        <div className="col-span-full">
-                          <WeeklyAttendance 
-                            days={formData.weeklyAttendance}
-                            onChange={(days) => setFormData({...formData, weeklyAttendance: days})}
-                            extraHours={formData.extraHours}
-                            onExtraHoursChange={(val) => setFormData({...formData, extraHours: val})}
-                          />
-                        </div>
-                        <StarRating label="Punctuality (On-time reporting)" value={formData.punctuality} onChange={(val) => setFormData({...formData, punctuality: val})} />
-                        <StarRating label="Team Management (Guard deployment as per plan)" value={formData.teamManagement} onChange={(val) => setFormData({...formData, teamManagement: val})} />
-                        <StarRating label="Inspection (Routine site patrols conducted)" value={formData.inspection} onChange={(val) => setFormData({...formData, inspection: val})} />
-                        <StarRating label="Incident Handling (Response time to incidents)" value={formData.incidentHandling} onChange={(val) => setFormData({...formData, incidentHandling: val})} />
-                        <StarRating label="Reporting (Daily/weekly reports submission)" value={formData.reporting} onChange={(val) => setFormData({...formData, reporting: val})} />
-                        <StarRating label="Weapon Handling (Maintenance & SOP compliance)" value={formData.weaponHandling} onChange={(val) => setFormData({...formData, weaponHandling: val})} />
-                        <StarRating label="Training (Toolbox talks / briefings conducted)" value={formData.training} onChange={(val) => setFormData({...formData, training: val})} />
-                        <StarRating label="Fleet handling (Liaison with drivers & routine)" value={formData.fleetHandling} onChange={(val) => setFormData({...formData, fleetHandling: val})} />
-                        <StarRating label="Neighboring/Law enforcement Liaison" value={formData.liaison} onChange={(val) => setFormData({...formData, liaison: val})} />
-                        <StarRating label="Risk Identification (Hazards/security gaps reported)" value={formData.riskIdentification} onChange={(val) => setFormData({...formData, riskIdentification: val})} />
-                      </>
-                    )}
-
-                    {selectedCategory === 'Paramedic Staff' && (
-                      <>
-                        <div className="col-span-full">
-                          <WeeklyAttendance 
-                            days={formData.weeklyAttendance}
-                            onChange={(days) => setFormData({...formData, weeklyAttendance: days})}
-                            extraHours={formData.extraHours}
-                            onExtraHoursChange={(val) => setFormData({...formData, extraHours: val})}
-                          />
-                        </div>
-                        <StarRating label="Punctuality (On-time reporting)" value={formData.punctuality} onChange={(val) => setFormData({...formData, punctuality: val})} />
-                        <StarRating label="Emergency Response (Response time)" value={formData.emergencyResponse} onChange={(val) => setFormData({...formData, emergencyResponse: val})} />
-                        <StarRating label="First Aid Cases (Treatment & Documentation)" value={formData.firstAidCases} onChange={(val) => setFormData({...formData, firstAidCases: val})} />
-                        <StarRating label="Equipment Readiness (First aid kits readiness)" value={formData.equipmentReadiness} onChange={(val) => setFormData({...formData, equipmentReadiness: val})} />
-                        <StarRating label="Medicine Control (Stock availability/No expiry)" value={formData.medicineControl} onChange={(val) => setFormData({...formData, medicineControl: val})} />
-                        <StarRating label="Health Monitoring (Routine employee checks)" value={formData.healthMonitoring} onChange={(val) => setFormData({...formData, healthMonitoring: val})} />
-                        <StarRating label="Training & Awareness (First aid sessions)" value={formData.training} onChange={(val) => setFormData({...formData, training: val})} />
-                        <StarRating label="Reporting (Incident/medical reports)" value={formData.reporting} onChange={(val) => setFormData({...formData, reporting: val})} />
-                        <StarRating label="Hygiene & Clinic (Cleanliness & Infection control)" value={formData.hygieneClinic} onChange={(val) => setFormData({...formData, hygieneClinic: val})} />
-                      </>
-                    )}
-                  </div>
-                ) : (
+                <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100">
+                  <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Clock size={18} />
+                    Monthly Attendance Log (15%)
+                  </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {[
-                      { id: 'attendance', label: 'Attendance', icon: <UserCheck size={18} /> },
-                      { id: 'punctuality', label: 'Punctuality', icon: <Clock size={18} /> },
-                      { id: 'behavior', label: 'Behavior', icon: <Star size={18} /> },
-                      { id: 'performance', label: 'Performance', icon: <TrendingUp size={18} /> }
-                    ].map((field) => (
-                      <div key={field.id} className="space-y-2">
-                        <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
-                          {field.icon}
-                          {field.label} (0-10)
-                        </label>
-                        <input 
-                          type="number" 
-                          min="0" 
-                          max="10"
-                          value={formData[field.id as 'attendance' | 'punctuality' | 'behavior' | 'performance']}
-                          onChange={(e) => setFormData({...formData, [field.id]: parseInt(e.target.value) || 0})}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        />
-                      </div>
-                    ))}
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                        <UserCheck size={18} className="text-emerald-500" />
+                        Working Days (Monthly)
+                      </label>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        max="31"
+                        value={formData.workingDays}
+                        onChange={(e) => setFormData({...formData, workingDays: parseInt(e.target.value) || 0})}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-bold text-lg"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                        <Clock size={18} className="text-amber-500" />
+                        Extra Hours (Monthly)
+                      </label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={formData.extraHours}
+                        onChange={(e) => setFormData({...formData, extraHours: parseInt(e.target.value) || 0})}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-bold text-lg"
+                      />
+                    </div>
                   </div>
-                )}
+                  <div className="mt-4 p-3 bg-white rounded-xl border border-gray-100 flex justify-between items-center">
+                    <span className="text-xs font-bold text-gray-400 uppercase">Total Monthly Hours</span>
+                    <span className="text-lg font-black text-indigo-600">{(formData.workingDays * 9) + formData.extraHours}h</span>
+                  </div>
+                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {type === 'security' ? (
+                    <>
+                      <div className="col-span-full bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                        <h3 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
+                          <ShieldCheck className="text-indigo-500" size={20} />
+                          Security Performance Metrics: {selectedCategory}
+                        </h3>
+                        <p className="text-xs text-indigo-700 mt-1">Rate each KPI from 1 to 5 stars (5★ = 100% weightage).</p>
+                      </div>
+                      
+                      {selectedCategory === 'Gate keeper' && (
+                        <>
+                          {selectedSubCategory === 'Office' ? (
+                            <>
+                              <StarRating label="Access Management (30%) (Proper entry/exit log maintained)" value={formData.accessControl} onChange={(val) => setFormData({...formData, accessControl: val})} />
+                              <StarRating label="Visitor Management (10%) (Visitor verification & pass issuance)" value={formData.visitorManagement} onChange={(val) => setFormData({...formData, visitorManagement: val})} />
+                              <StarRating label="Material Movement (10%) (Proper gate pass verification)" value={formData.materialMovement} onChange={(val) => setFormData({...formData, materialMovement: val})} />
+                            </>
+                          ) : (
+                            <>
+                              <StarRating label="Access Management (30%) (Parking)" value={formData.accessControl} onChange={(val) => setFormData({...formData, accessControl: val})} />
+                              <StarRating label="Proper vehicle Verification (20%)" value={formData.materialMovement} onChange={(val) => setFormData({...formData, materialMovement: val})} />
+                            </>
+                          )}
+                          <StarRating label="Training (5%) (Quarterly Monitoring)" value={formData.training} onChange={(val) => setFormData({...formData, training: val})} />
+                          <StarRating label="Security observation (5%)" value={formData.securityAwareness} onChange={(val) => setFormData({...formData, securityAwareness: val})} />
+                          <StarRating label="Discipline (15%) (Uniform & conduct)" value={formData.discipline} onChange={(val) => setFormData({...formData, discipline: val})} />
+                          <StarRating label="Communication (10%) (Coordination with control room)" value={formData.communication} onChange={(val) => setFormData({...formData, communication: val})} />
+                        </>
+                      )}
+
+                      {selectedCategory === 'Security Supervisor' && (
+                        <>
+                          <StarRating label="Team Management (10%) (Guard deployment as per plan)" value={formData.teamManagement} onChange={(val) => setFormData({...formData, teamManagement: val})} />
+                          <StarRating label="Inspection (10%) (Routine site patrols conducted)" value={formData.inspection} onChange={(val) => setFormData({...formData, inspection: val})} />
+                          <StarRating label="Incident Handling (10%) (Response time to incidents)" value={formData.incidentHandling} onChange={(val) => setFormData({...formData, incidentHandling: val})} />
+                          <StarRating label="Reporting (5%) (Daily/weekly reports submission)" value={formData.reporting} onChange={(val) => setFormData({...formData, reporting: val})} />
+                          <StarRating label="Weapon Handling (10%) (Maintenance & SOP compliance)" value={formData.weaponHandling} onChange={(val) => setFormData({...formData, weaponHandling: val})} />
+                          <StarRating label="Training (5%) (Quarterly Monitoring)" value={formData.training} onChange={(val) => setFormData({...formData, training: val})} />
+                          <StarRating label="Fleet handling (10%) (Liaison with drivers)" value={formData.fleetHandling} onChange={(val) => setFormData({...formData, fleetHandling: val})} />
+                          <StarRating label="Liaison (10%) (Neighboring/Law enforcement)" value={formData.liaison} onChange={(val) => setFormData({...formData, liaison: val})} />
+                          <StarRating label="Risk Identification (15%) (Hazards/security gaps reported)" value={formData.riskIdentification} onChange={(val) => setFormData({...formData, riskIdentification: val})} />
+                        </>
+                      )}
+
+                      {selectedCategory === 'Paramedic Staff' && (
+                        <>
+                          <StarRating label="Emergency Response (15%) (Response time to incidents)" value={formData.emergencyResponse} onChange={(val) => setFormData({...formData, emergencyResponse: val})} />
+                          <StarRating label="First Aid Cases (10%) (Proper treatment & documentation)" value={formData.firstAidCases} onChange={(val) => setFormData({...formData, firstAidCases: val})} />
+                          <StarRating label="Equipment Readiness (10%) (First aid kits readiness)" value={formData.equipmentReadiness} onChange={(val) => setFormData({...formData, equipmentReadiness: val})} />
+                          <StarRating label="Medicine Control (10%) (Stock availability)" value={formData.medicineControl} onChange={(val) => setFormData({...formData, medicineControl: val})} />
+                          <StarRating label="Health Monitoring (10%) (Routine employee checks)" value={formData.healthMonitoring} onChange={(val) => setFormData({...formData, healthMonitoring: val})} />
+                          <StarRating label="Training (10%) (Quarterly Monitoring)" value={formData.training} onChange={(val) => setFormData({...formData, training: val})} />
+                          <StarRating label="Reporting (10%) (Incident/medical reports)" value={formData.reporting} onChange={(val) => setFormData({...formData, reporting: val})} />
+                          <StarRating label="Hygiene & Clinic (10%) (Cleanliness & infection control)" value={formData.hygieneClinic} onChange={(val) => setFormData({...formData, hygieneClinic: val})} />
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="col-span-full bg-emerald-50 p-6 rounded-2xl border border-emerald-100 relative overflow-hidden group">
+                        <div className="absolute -right-4 -top-4 w-24 h-24 bg-emerald-200/30 rounded-full blur-2xl group-hover:scale-125 transition-transform" />
+                        <h3 className="text-lg font-bold text-emerald-900 flex items-center gap-2 mb-1">
+                          <Zap className="text-emerald-500 fill-emerald-500" size={20} />
+                          Soft FM Performance Hub: {selectedCategory}
+                        </h3>
+                        <p className="text-xs text-emerald-700 font-medium opacity-80">Precision evaluation based on role-specific intelligence.</p>
+                      </div>
+
+                      {selectedCategory === 'Receptionist' && (
+                        <>
+                          <StarRating label="Interpersonal & Professional Behavior (15%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Visitor Management Log Precision (15%)" value={formData.visitorLog} onChange={(val) => setFormData({...formData, visitorLog: val})} />
+                          <StarRating label="Rider Coordination & Log (15%)" value={formData.riderLog} onChange={(val) => setFormData({...formData, riderLog: val})} />
+                          <StarRating label="Petty Cash Accountability (10%)" value={formData.pettyCash} onChange={(val) => setFormData({...formData, pettyCash: val})} />
+                          <StarRating label="Courier & Dispatch Management (15%)" value={formData.courierLog} onChange={(val) => setFormData({...formData, courierLog: val})} />
+                          <StarRating label="Consumables Inventory Control (15%)" value={formData.consumableLog} onChange={(val) => setFormData({...formData, consumableLog: val})} />
+                        </>
+                      )}
+
+                      {selectedCategory === 'Rider' && (
+                        <>
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
+                            <label className="block text-sm font-black text-gray-800 mb-3 flex items-center justify-between">
+                              Total Monthly Deliveries (25%)
+                              <Bike size={18} className="text-emerald-500" />
+                            </label>
+                            <input 
+                              type="number" 
+                              value={formData.numberOfRides}
+                              onChange={(e) => setFormData({...formData, numberOfRides: parseInt(e.target.value) || 0})}
+                              className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-bold text-lg"
+                              placeholder="0"
+                            />
+                          </div>
+                          <StarRating label="Road Discipline & Behavior (15%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
+                            <label className="block text-sm font-black text-gray-800 mb-3">Mileage / KM Log (20%)</label>
+                            <input 
+                              type="number" 
+                              value={formData.kmConsumed}
+                              onChange={(e) => setFormData({...formData, kmConsumed: parseInt(e.target.value) || 0})}
+                              className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-bold text-lg"
+                              placeholder="0"
+                            />
+                          </div>
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
+                            <label className="block text-sm font-black text-gray-800 mb-3">Fuel Consumption Control (25%)</label>
+                            <input 
+                              type="number" 
+                              value={formData.petrolConsumed}
+                              onChange={(e) => setFormData({...formData, petrolConsumed: parseInt(e.target.value) || 0})}
+                              className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-bold text-lg"
+                              placeholder="0"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {selectedCategory === 'Office Boy' && (
+                        <>
+                          <StarRating label="Professional Mannerism (20%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Kitchen & Pantry Standard (25%)" value={formData.kitchenHygiene} onChange={(val) => setFormData({...formData, kitchenHygiene: val})} />
+                          <StarRating label="Collaboration Space Readiness (20%)" value={formData.meetingRoomReadiness} onChange={(val) => setFormData({...formData, meetingRoomReadiness: val})} />
+                          <StarRating label="Smart utility Management (Energy conservation/AC/Lights) (20%)" value={formData.utilityManagement} onChange={(val) => setFormData({...formData, utilityManagement: val})} />
+                        </>
+                      )}
+
+                      {selectedCategory === 'Janitorial' && (
+                        <>
+                          <StarRating label="Hygiene Protocol Compliance (20%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Deep Cleaning Precision (25%)" value={formData.cleaningQuality} onChange={(val) => setFormData({...formData, cleaningQuality: val})} />
+                          <StarRating label="Restroom Sanitization Score (20%)" value={formData.restroomHygiene} onChange={(val) => setFormData({...formData, restroomHygiene: val})} />
+                          <StarRating label="Eco-Waste Management (20%)" value={formData.wasteManagement} onChange={(val) => setFormData({...formData, wasteManagement: val})} />
+                        </>
+                      )}
+
+                      {selectedCategory === 'Valet' && (
+                        <>
+                          <StarRating label="Customer Interaction & Behavior (25%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Fleet Management Efficiency (60%)" value={formData.performance} onChange={(val) => setFormData({...formData, performance: val})} />
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
                       Manual Adjustment (Bonus/Penalty)
@@ -1158,45 +1153,65 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     />
                   </div>
-                  {type === 'soft-fm' && (
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
-                        Working Days
-                      </label>
-                      <input 
-                        type="number" 
-                        min="1" 
-                        max="7"
-                        value={formData.workingDays}
-                        onChange={(e) => setFormData({...formData, workingDays: parseInt(e.target.value) || 0})}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                  )}
-                </div>
 
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
-                    <MessageSquare size={18} />
+                    <MessageSquare size={18} className="text-indigo-500" />
                     Remarks (Mention reason for manual points here)
                   </label>
-                  <textarea 
-                    value={formData.remarks}
-                    onChange={(e) => setFormData({...formData, remarks: e.target.value})}
-                    placeholder="Add any additional comments..."
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none h-24"
-                  />
+                  <div className="relative">
+                    <textarea 
+                      value={formData.remarks}
+                      onChange={(e) => setFormData({...formData, remarks: e.target.value})}
+                      placeholder="Add performance notes..."
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none min-h-[100px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsGeneratingAI(true);
+                        const insight = await generateSecurityInsights(
+                          selectedStaff?.name || '',
+                          selectedCategory || '',
+                          formData,
+                          formData.remarks
+                        );
+                        setAiInsight(insight || "Unable to generate insight.");
+                        setIsGeneratingAI(false);
+                      }}
+                      disabled={isGeneratingAI}
+                      className="absolute bottom-3 right-3 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg disabled:opacity-50"
+                    >
+                      {isGeneratingAI ? <Activity size={12} className="animate-spin" /> : <Zap size={12} />}
+                      AI Insight
+                    </button>
+                  </div>
+                  {aiInsight && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl mt-2"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Zap size={14} className="text-indigo-600" />
+                        <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Smart AI Analysis</span>
+                      </div>
+                      <p className="text-xs text-indigo-900 leading-relaxed italic">"{aiInsight}"</p>
+                    </motion.div>
+                  )}
                 </div>
 
                 <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
                   <div className="flex justify-between items-center mb-4">
-                    <span className="text-gray-600">Supervisor Score (Max 40)</span>
-                    <span className="font-bold text-gray-900">{calculateScores().supervisorScore}</span>
+                    <span className="text-gray-600">{type === 'security' ? 'Weighted Score (Max 100)' : 'Supervisor Score (Max 40)'}</span>
+                    <span className="font-bold text-gray-900">{calculateScores().supervisorScore.toFixed(1)}</span>
                   </div>
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-gray-600">Attendance Base (10 pts/day)</span>
-                    <span className="font-bold text-gray-900">{10 * (type === 'security' ? formData.weeklyAttendance.filter(Boolean).length : formData.workingDays)}</span>
-                  </div>
+                  {type !== 'security' && (
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-gray-600">Attendance Base (10 pts/day)</span>
+                      <span className="font-bold text-gray-900">{10 * formData.workingDays}</span>
+                    </div>
+                  )}
                   {selectedCategory === 'Valet' && (
                     <div className="flex justify-between items-center mb-4 text-indigo-600 font-bold">
                       <div className="flex flex-col">

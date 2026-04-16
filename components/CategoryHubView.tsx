@@ -267,7 +267,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                      <i className="fas fa-shield-alt"></i>
                    </div>
                    <div>
-                     <h2 className="text-xl md:text-2xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Security Evaluation</h2>
+                     <h2 className="text-xl md:text-2xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Security and HSE Metric</h2>
                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] italic leading-tight">Gate Keeper & Supervisor Scorecards</p>
                    </div>
                  </div>
