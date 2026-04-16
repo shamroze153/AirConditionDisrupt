@@ -24,7 +24,7 @@ const StarRating: React.FC<{ value: number, onChange: (val: number) => void, lab
           key={star}
           type="button"
           onClick={() => onChange(star)}
-          className={`p-1.5 rounded-lg transition-all ${star <= value ? 'text-amber-400 bg-amber-50' : 'text-gray-200 hover:bg-gray-50'}`}
+          className={`p-1.5 rounded-lg transition-all ${star <= value ? 'text-amber-400 bg-amber-50' : 'text-gray-300 bg-white border border-gray-100 hover:bg-gray-50'}`}
         >
           <Star size={28} fill={star <= value ? 'currentColor' : 'none'} strokeWidth={2.5} />
         </button>
@@ -33,6 +33,61 @@ const StarRating: React.FC<{ value: number, onChange: (val: number) => void, lab
     </div>
   </div>
 );
+
+const WeeklyAttendance: React.FC<{ 
+  days: boolean[], 
+  onChange: (days: boolean[]) => void,
+  extraHours: number,
+  onExtraHoursChange: (val: number) => void
+}> = ({ days, onChange, extraHours, onExtraHoursChange }) => {
+  const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const workedDays = days.filter(Boolean).length;
+  const workedHours = workedDays * 9;
+
+  const toggleDay = (index: number) => {
+    const newDays = [...days];
+    newDays[index] = !newDays[index];
+    onChange(newDays);
+  };
+
+  return (
+    <div className="space-y-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+      <label className="block text-sm font-bold text-gray-700">Weekly Attendance</label>
+      <div className="flex justify-between gap-1">
+        {dayLabels.map((label, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => toggleDay(i)}
+            className={`w-10 h-10 rounded-xl font-bold transition-all flex items-center justify-center border ${
+              days[i] 
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
+                : 'bg-white text-gray-400 border-gray-200 hover:border-indigo-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-4 pt-2">
+        <div className="bg-white p-3 rounded-xl border border-gray-100">
+          <p className="text-[10px] font-bold text-gray-400 uppercase">Worked Hours</p>
+          <p className="text-lg font-black text-indigo-600">{workedHours}h <span className="text-xs text-gray-400 font-normal">({workedDays} days)</span></p>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-gray-100">
+          <p className="text-[10px] font-bold text-gray-400 uppercase">Extra Hours</p>
+          <input 
+            type="number"
+            value={extraHours}
+            onChange={(e) => onExtraHoursChange(parseInt(e.target.value) || 0)}
+            className="w-full text-lg font-black text-amber-600 focus:outline-none bg-transparent"
+            placeholder="0"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type }) => {
   const [view, setView] = useState<'dashboard' | 'categories' | 'staff' | 'sub-category' | 'form' | 'self-view'>(type === 'security' ? 'dashboard' : 'categories');
@@ -48,43 +103,51 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
   const [selfEval, setSelfEval] = useState<SoftFMEvaluation | null>(null);
   const [attendance, setAttendance] = useState<Record<string, boolean>>({});
   const [valetLogs, setValetLogs] = useState<ValetLogEntry[]>([]);
+  const [editingStaff, setEditingStaff] = useState<{ name: string, dept: string } | null>(null);
+  const [adjustmentPoints, setAdjustmentPoints] = useState(0);
+  const [adjustmentRemarks, setAdjustmentRemarks] = useState('');
 
   const [formData, setFormData] = useState({
-    attendance: 10,
-    punctuality: 10,
-    behavior: 10,
-    performance: 10,
+    attendance: 0,
+    punctuality: 0,
+    behavior: 0,
+    performance: 0,
     manualAdjustment: 0,
     workingDays: 1,
     remarks: '',
+    weeklyAttendance: [false, false, false, false, false, false, false],
+    extraHours: 0,
     // Security specific KPIs (1-5 stars)
-    accessControl: 5,
-    visitorManagement: 5,
-    materialMovement: 5,
-    securityAwareness: 5,
-    discipline: 5,
-    communication: 5,
+    accessControl: 0,
+    visitorManagement: 0,
+    materialMovement: 0,
+    securityAwareness: 0,
+    discipline: 0,
+    communication: 0,
     // Security Supervisor KPIs
-    teamManagement: 5,
-    inspection: 5,
-    incidentHandling: 5,
-    reporting: 5,
-    weaponHandling: 5,
-    training: 5,
-    fleetHandling: 5,
-    liaison: 5,
-    riskIdentification: 5,
+    teamManagement: 0,
+    inspection: 0,
+    incidentHandling: 0,
+    reporting: 0,
+    weaponHandling: 0,
+    training: 0,
+    fleetHandling: 0,
+    liaison: 0,
+    riskIdentification: 0,
     // Paramedic KPIs
-    emergencyResponse: 5,
-    firstAidCases: 5,
-    equipmentReadiness: 5,
-    medicineControl: 5,
-    healthMonitoring: 5,
-    hygieneClinic: 5
+    emergencyResponse: 0,
+    firstAidCases: 0,
+    equipmentReadiness: 0,
+    medicineControl: 0,
+    healthMonitoring: 0,
+    hygieneClinic: 0
   });
 
   useEffect(() => {
     loadEvaluations();
+    // Polling for "Live" feel
+    const interval = setInterval(loadEvaluations, 10000); // Every 10 seconds
+    return () => clearInterval(interval);
   }, []);
 
   const loadEvaluations = async () => {
@@ -168,13 +231,19 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
 
   const calculateScores = () => {
     let supervisorScore = 0;
+    const workedDays = formData.weeklyAttendance.filter(Boolean).length;
     
     if (type === 'security') {
       // 1 star = 2 points, 5 stars = 10 points
       const getPoints = (stars: number) => stars * 2;
+      
+      // Attendance score: (Worked Hours + Extra Hours) / (Standard 54h) * 10
+      const totalHours = (workedDays * 9) + formData.extraHours;
+      const attendanceScore = Math.min(10, (totalHours / 54) * 10);
+      const combinedAttendancePunctuality = (attendanceScore + getPoints(formData.punctuality)) / 2;
 
       if (selectedCategory === 'Gate keeper') {
-        supervisorScore = getPoints((formData.attendance + formData.punctuality) / 2);
+        supervisorScore = combinedAttendancePunctuality;
         supervisorScore += getPoints(formData.accessControl);
         supervisorScore += getPoints(formData.visitorManagement);
         supervisorScore += getPoints(formData.materialMovement);
@@ -183,7 +252,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         supervisorScore += getPoints(formData.discipline);
         supervisorScore += getPoints(formData.communication);
       } else if (selectedCategory === 'Security Supervisor') {
-        supervisorScore = getPoints(formData.attendance);
+        supervisorScore = combinedAttendancePunctuality;
         supervisorScore += getPoints(formData.teamManagement);
         supervisorScore += getPoints(formData.inspection);
         supervisorScore += getPoints(formData.incidentHandling);
@@ -194,8 +263,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         supervisorScore += getPoints(formData.liaison);
         supervisorScore += getPoints(formData.riskIdentification);
       } else if (selectedCategory === 'Paramedic Staff') {
-        supervisorScore = getPoints(formData.attendance);
-        supervisorScore += getPoints(formData.punctuality);
+        supervisorScore = combinedAttendancePunctuality;
         supervisorScore += getPoints(formData.emergencyResponse);
         supervisorScore += getPoints(formData.firstAidCases);
         supervisorScore += getPoints(formData.equipmentReadiness);
@@ -210,7 +278,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     }
 
     const valetPoints = selectedStaff ? calculateValetPoints(selectedStaff.name) : 0;
-    const autoDailyScore = (10 * formData.workingDays); 
+    const autoDailyScore = (10 * (type === 'security' ? workedDays : formData.workingDays)); 
     const finalScore = supervisorScore + autoDailyScore + formData.manualAdjustment;
     return { supervisorScore, autoDailyScore, valetPoints, finalScore };
   };
@@ -233,12 +301,16 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         finalRemarks = `[Assignment: ${selectedSubCategory}] ${finalRemarks}`;
       }
 
+      const workedDays = formData.weeklyAttendance.filter(Boolean).length;
+      const totalHours = (workedDays * 9) + formData.extraHours;
+      const attendanceScore = type === 'security' ? Math.min(10, (totalHours / 54) * 10) : formData.attendance;
+
       const newEval: Omit<SoftFMEvaluation, 'timestamp'> = {
         week: `Log ${new Date().toLocaleDateString()}`,
         name: selectedStaff.name,
         department: selectedCategory,
         subCategory: selectedSubCategory || undefined,
-        attendance: formData.attendance,
+        attendance: attendanceScore,
         punctuality: formData.punctuality,
         behavior: formData.behavior,
         performance: formData.performance,
@@ -246,6 +318,8 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         autoDailyScore,
         finalScore,
         remarks: finalRemarks,
+        extraHours: type === 'security' ? formData.extraHours : undefined,
+        weeklyAttendance: type === 'security' ? JSON.stringify(formData.weeklyAttendance) : undefined,
         accessControl: formData.accessControl,
         visitorManagement: formData.visitorManagement,
         materialMovement: formData.materialMovement,
@@ -346,6 +420,44 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     }
   };
 
+  const handleAdjustmentSubmit = async () => {
+    if (!editingStaff) return;
+    try {
+      setSubmitting(true);
+      const newEval: Omit<SoftFMEvaluation, 'timestamp'> = {
+        week: `Manual Adjustment ${new Date().toLocaleDateString()}`,
+        name: editingStaff.name,
+        department: editingStaff.dept,
+        attendance: 0,
+        punctuality: 0,
+        behavior: 0,
+        performance: 0,
+        supervisorScore: 0,
+        autoDailyScore: 0,
+        finalScore: adjustmentPoints,
+        remarks: `[Manual Adjustment] ${adjustmentRemarks}`,
+        extraHours: 0,
+        weeklyAttendance: JSON.stringify([false, false, false, false, false, false, false])
+      };
+
+      if (type === 'security') {
+        await submitSecurityEvaluation(newEval);
+      } else {
+        await submitSoftFMEvaluation(newEval);
+      }
+      
+      setEditingStaff(null);
+      setAdjustmentPoints(0);
+      setAdjustmentRemarks('');
+      loadEvaluations();
+      alert("Adjustment applied successfully!");
+    } catch (error) {
+      alert("Failed to apply adjustment.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const getLabel = (score: number) => {
     if (score >= 90) return { text: 'Excellent', color: 'text-green-600 bg-green-50' };
     if (score >= 75) return { text: 'Good', color: 'text-blue-600 bg-blue-50' };
@@ -405,6 +517,56 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         </div>
 
         <AnimatePresence mode="wait">
+          {editingStaff && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+              >
+                <div className="bg-indigo-600 p-6 text-white">
+                  <h3 className="text-xl font-bold">Adjust Points</h3>
+                  <p className="text-indigo-100 text-sm">Managing ranking for {editingStaff.name}</p>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Point Adjustment (e.g. +50 or -20)</label>
+                    <input 
+                      type="number"
+                      value={adjustmentPoints}
+                      onChange={(e) => setAdjustmentPoints(parseInt(e.target.value) || 0)}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-black text-xl text-indigo-600"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-700">Reason / Remarks</label>
+                    <textarea 
+                      value={adjustmentRemarks}
+                      onChange={(e) => setAdjustmentRemarks(e.target.value)}
+                      placeholder="Why are you adjusting these points?"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none h-24"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => setEditingStaff(null)}
+                      className="flex-1 px-6 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleAdjustmentSubmit}
+                      disabled={submitting}
+                      className="flex-1 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                    >
+                      {submitting ? 'Applying...' : 'Apply Adjustment'}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
           {view === 'dashboard' && (
             <motion.div
               key="dashboard"
@@ -421,6 +583,13 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                     <div className="absolute inset-0 w-3 h-3 bg-emerald-500 rounded-full animate-ping opacity-75"></div>
                   </div>
                   <span className="text-sm font-bold text-gray-600 uppercase tracking-wider">Live Security Feed</span>
+                  <button 
+                    onClick={() => loadEvaluations()}
+                    disabled={loading}
+                    className={`p-1.5 rounded-lg hover:bg-gray-100 transition-all ${loading ? 'animate-spin text-indigo-600' : 'text-gray-400'}`}
+                  >
+                    <Activity size={14} />
+                  </button>
                 </div>
                 <div className="text-xs text-gray-400 font-medium">
                   Last updated: {new Date().toLocaleTimeString()}
@@ -495,6 +664,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                           <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Personnel</th>
                           <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Points</th>
                           <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Index</th>
+                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -526,6 +696,15 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                                 <div className="inline-flex items-center px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-[10px] font-black group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-colors">
                                   {staff.average.toFixed(1)}
                                 </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                                <button
+                                  onClick={() => setEditingStaff({ name: staff.name, dept: staff.dept })}
+                                  className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="Edit Points"
+                                >
+                                  <MessageSquare size={16} />
+                                </button>
                               </td>
                             </tr>
                           ))
@@ -823,10 +1002,19 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                     
                     {selectedCategory === 'Gate keeper' && (
                       <>
+                        <div className="col-span-full">
+                          <WeeklyAttendance 
+                            days={formData.weeklyAttendance}
+                            onChange={(days) => setFormData({...formData, weeklyAttendance: days})}
+                            extraHours={formData.extraHours}
+                            onExtraHoursChange={(val) => setFormData({...formData, extraHours: val})}
+                          />
+                        </div>
+
                         <StarRating 
-                          label="Attendance & Punctuality (On-time shift reporting)"
-                          value={formData.attendance}
-                          onChange={(val) => setFormData({...formData, attendance: val, punctuality: val})}
+                          label="Punctuality (On-time shift reporting)"
+                          value={formData.punctuality}
+                          onChange={(val) => setFormData({...formData, punctuality: val})}
                         />
 
                         {selectedSubCategory === 'Office' ? (
@@ -889,7 +1077,15 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
 
                     {selectedCategory === 'Security Supervisor' && (
                       <>
-                        <StarRating label="Attendance (Shift Adherence)" value={formData.attendance} onChange={(val) => setFormData({...formData, attendance: val})} />
+                        <div className="col-span-full">
+                          <WeeklyAttendance 
+                            days={formData.weeklyAttendance}
+                            onChange={(days) => setFormData({...formData, weeklyAttendance: days})}
+                            extraHours={formData.extraHours}
+                            onExtraHoursChange={(val) => setFormData({...formData, extraHours: val})}
+                          />
+                        </div>
+                        <StarRating label="Punctuality (On-time reporting)" value={formData.punctuality} onChange={(val) => setFormData({...formData, punctuality: val})} />
                         <StarRating label="Team Management (Guard deployment as per plan)" value={formData.teamManagement} onChange={(val) => setFormData({...formData, teamManagement: val})} />
                         <StarRating label="Inspection (Routine site patrols conducted)" value={formData.inspection} onChange={(val) => setFormData({...formData, inspection: val})} />
                         <StarRating label="Incident Handling (Response time to incidents)" value={formData.incidentHandling} onChange={(val) => setFormData({...formData, incidentHandling: val})} />
@@ -904,7 +1100,14 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
 
                     {selectedCategory === 'Paramedic Staff' && (
                       <>
-                        <StarRating label="Attendance (Shift Adherence)" value={formData.attendance} onChange={(val) => setFormData({...formData, attendance: val})} />
+                        <div className="col-span-full">
+                          <WeeklyAttendance 
+                            days={formData.weeklyAttendance}
+                            onChange={(days) => setFormData({...formData, weeklyAttendance: days})}
+                            extraHours={formData.extraHours}
+                            onExtraHoursChange={(val) => setFormData({...formData, extraHours: val})}
+                          />
+                        </div>
                         <StarRating label="Punctuality (On-time reporting)" value={formData.punctuality} onChange={(val) => setFormData({...formData, punctuality: val})} />
                         <StarRating label="Emergency Response (Response time)" value={formData.emergencyResponse} onChange={(val) => setFormData({...formData, emergencyResponse: val})} />
                         <StarRating label="First Aid Cases (Treatment & Documentation)" value={formData.firstAidCases} onChange={(val) => setFormData({...formData, firstAidCases: val})} />
@@ -934,7 +1137,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                           type="number" 
                           min="0" 
                           max="10"
-                          value={formData[field.id as keyof typeof formData]}
+                          value={formData[field.id as 'attendance' | 'punctuality' | 'behavior' | 'performance']}
                           onChange={(e) => setFormData({...formData, [field.id]: parseInt(e.target.value) || 0})}
                           className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                         />
@@ -955,19 +1158,21 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
-                      Working Days
-                    </label>
-                    <input 
-                      type="number" 
-                      min="1" 
-                      max="7"
-                      value={formData.workingDays}
-                      onChange={(e) => setFormData({...formData, workingDays: parseInt(e.target.value) || 0})}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    />
-                  </div>
+                  {type === 'soft-fm' && (
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                        Working Days
+                      </label>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="7"
+                        value={formData.workingDays}
+                        onChange={(e) => setFormData({...formData, workingDays: parseInt(e.target.value) || 0})}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -990,7 +1195,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                   </div>
                   <div className="flex justify-between items-center mb-4">
                     <span className="text-gray-600">Attendance Base (10 pts/day)</span>
-                    <span className="font-bold text-gray-900">{10 * formData.workingDays}</span>
+                    <span className="font-bold text-gray-900">{10 * (type === 'security' ? formData.weeklyAttendance.filter(Boolean).length : formData.workingDays)}</span>
                   </div>
                   {selectedCategory === 'Valet' && (
                     <div className="flex justify-between items-center mb-4 text-indigo-600 font-bold">

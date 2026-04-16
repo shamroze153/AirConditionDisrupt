@@ -27,7 +27,7 @@ function initializeSheets(ss) {
     'Master_Tools': ['Category', 'Name', 'Quantity', 'Technician'],
     'Valet_Log': ['Timestamp_IN', 'Date', 'CarNumber', 'CardNumber', 'ParkingSlot', 'Driver_IN', 'Timestamp_OUT', 'Driver_OUT', 'Status', 'Remarks'],
     'SoftFM_Weekly_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks'],
-    'Security_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'SubCategory', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks', 'AccessControl', 'VisitorManagement', 'MaterialMovement', 'SecurityAwareness', 'Discipline', 'Communication', 'TeamManagement', 'Inspection', 'IncidentHandling', 'Reporting', 'WeaponHandling', 'Training', 'FleetHandling', 'Liaison', 'RiskIdentification', 'EmergencyResponse', 'FirstAidCases', 'EquipmentReadiness', 'MedicineControl', 'HealthMonitoring', 'HygieneClinic']
+    'Security_Evaluation': ['Timestamp', 'Week', 'Name', 'Department', 'SubCategory', 'Attendance', 'Punctuality', 'Behavior', 'Performance', 'SupervisorScore', 'AutoDailyScore', 'FinalScore', 'Remarks', 'AccessControl', 'VisitorManagement', 'MaterialMovement', 'SecurityAwareness', 'Discipline', 'Communication', 'TeamManagement', 'Inspection', 'IncidentHandling', 'Reporting', 'WeaponHandling', 'Training', 'FleetHandling', 'Liaison', 'RiskIdentification', 'EmergencyResponse', 'FirstAidCases', 'EquipmentReadiness', 'MedicineControl', 'HealthMonitoring', 'HygieneClinic', 'ExtraHours', 'WeeklyAttendance']
   };
 
   Object.keys(headers).forEach(sheetName => {
@@ -124,7 +124,9 @@ function doGet(e) {
           equipmentReadiness: Number(r[30]),
           medicineControl: Number(r[31]),
           healthMonitoring: Number(r[32]),
-          hygieneClinic: Number(r[33])
+          hygieneClinic: Number(r[33]),
+          extraHours: Number(r[34] || 0),
+          weeklyAttendance: String(r[35] || '')
         }));
         break;
 
@@ -771,7 +773,9 @@ function doPost(e) {
           Number(params.equipmentReadiness || 0),
           Number(params.medicineControl || 0),
           Number(params.healthMonitoring || 0),
-          Number(params.hygieneClinic || 0)
+          Number(params.hygieneClinic || 0),
+          Number(params.extraHours || 0),
+          params.weeklyAttendance || ''
         ]);
         break;
 

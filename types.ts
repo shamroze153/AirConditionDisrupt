@@ -188,6 +188,8 @@ export interface SoftFMEvaluation {
   autoDailyScore: number;
   finalScore: number;
   remarks: string;
+  extraHours?: number;
+  weeklyAttendance?: string; // JSON string of boolean array
   // Security specific KPIs (1-5 stars)
   accessControl?: number;
   visitorManagement?: number;

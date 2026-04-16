@@ -1,7 +1,7 @@
 
 import { FMCategory, SoftFMStaff } from './types';
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyU84573rmoBfJD8dmBFkxLmoc2NtzhBFPXix3aFzV0wKPXDdGIsmIJa_ZiW231tpRNpg/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwWBb3nqwNIp4cG2ktNEMM4zUJzvBBERcBNFbqnVcT2bkMnNjyWjR9EV2qoH3LjXwSxbg/exec";
 
 // Swapped Taimoor and Saboor for Zone assignment logic
 export const TECHNICIANS = ['Bilal', 'Asad', 'Saboor', 'Taimoor'];
