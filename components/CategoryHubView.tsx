@@ -47,6 +47,8 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
   const [foundAsset, setFoundAsset] = useState<Asset | null>(null);
   const [assignedFeedback, setAssignedFeedback] = useState<string | null>(null);
 
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+
   const hardFM = FM_CATEGORIES.filter(c => c.group === 'Hard FM');
   const softFM = FM_CATEGORIES.filter(c => c.group === 'Soft FM');
 
@@ -252,7 +254,7 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
                      <i className="fas fa-star"></i>
                    </div>
                    <div>
-                     <h2 className="text-xl md:text-2xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Soft FM Evaluation</h2>
+                     <h2 className="text-xl md:text-2xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Soft FM Metric</h2>
                      <p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.4em] italic leading-tight">Valet, Office Boy & Staff Scorecards</p>
                    </div>
                  </div>
@@ -281,9 +283,38 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
             <h2 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-slate-400 italic">Hard FM Infrastructure</h2>
             <div className="h-px flex-1 bg-slate-100"></div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
-            {hardFM.map(cat => <CategoryCard key={cat.id} category={cat} onClick={onSelectCategory} />)}
-          </div>
+          
+          {expandedGroup !== 'hard' ? (
+            <button 
+              onClick={() => setExpandedGroup('hard')}
+              className="w-full bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[3rem] border border-slate-100 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-xl"
+            >
+              <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-amber-500/5 blur-[100px]"></div>
+              <div className="relative z-10 flex items-center justify-between">
+                <div className="flex gap-4 md:gap-8 items-center">
+                  <div className="w-14 h-14 md:w-20 md:h-20 bg-amber-50 text-amber-600 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
+                    <i className="fas fa-tools"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-xl md:text-3xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Hard FM Operation</h2>
+                    <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] italic leading-tight">AC, Electrical & GM Maintenance</p>
+                  </div>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-900 group-hover:text-white transition-all">
+                  <i className="fas fa-chevron-right"></i>
+                </div>
+              </div>
+            </button>
+          ) : (
+            <div className="space-y-4">
+              <button onClick={() => setExpandedGroup(null)} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-2 mb-4 hover:gap-3 transition-all italic">
+                <i className="fas fa-arrow-left"></i> Back to Main Hub
+              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 animate-slideUp">
+                {hardFM.map(cat => <CategoryCard key={cat.id} category={cat} onClick={onSelectCategory} />)}
+              </div>
+            </div>
+          )}
         </section>
 
         <section>
@@ -291,9 +322,38 @@ const CategoryHubView: React.FC<Props> = ({ onBack, onSelectCategory, onOpenGlob
             <h2 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-slate-400 italic">Soft FM Services</h2>
             <div className="h-px flex-1 bg-slate-100"></div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
-            {softFM.map(cat => <CategoryCard key={cat.id} category={cat} onClick={onSelectCategory} />)}
-          </div>
+
+          {expandedGroup !== 'soft' ? (
+             <button 
+              onClick={() => setExpandedGroup('soft')}
+              className="w-full bg-white p-8 md:p-12 rounded-[2rem] md:rounded-[3rem] border border-slate-100 relative overflow-hidden group transition-all hover:scale-[1.01] active:scale-[0.99] text-left shadow-xl"
+            >
+              <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-blue-500/5 blur-[100px]"></div>
+              <div className="relative z-10 flex items-center justify-between">
+                <div className="flex gap-4 md:gap-8 items-center">
+                  <div className="w-14 h-14 md:w-20 md:h-20 bg-blue-50 text-blue-600 rounded-2xl md:rounded-[2rem] flex items-center justify-center text-2xl md:text-3xl shadow-inner group-hover:bg-slate-900 group-hover:text-white transition-all">
+                    <i className="fas fa-concierge-bell"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-xl md:text-3xl font-black text-slate-900 italic tracking-tighter uppercase leading-none mb-2">Soft FM Services</h2>
+                    <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] italic leading-tight">Valet & Seating Occupancy Analysis</p>
+                  </div>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-900 group-hover:text-white transition-all">
+                  <i className="fas fa-chevron-right"></i>
+                </div>
+              </div>
+            </button>
+          ) : (
+            <div className="space-y-4">
+              <button onClick={() => setExpandedGroup(null)} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-2 mb-4 hover:gap-3 transition-all italic">
+                <i className="fas fa-arrow-left"></i> Back to Main Hub
+              </button>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 animate-slideUp">
+                {softFM.map(cat => <CategoryCard key={cat.id} category={cat} onClick={onSelectCategory} />)}
+              </div>
+            </div>
+          )}
         </section>
       </div>
 

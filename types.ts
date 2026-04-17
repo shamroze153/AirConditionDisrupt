@@ -214,6 +214,11 @@ export interface SoftFMEvaluation {
   medicineControl?: number;
   healthMonitoring?: number;
   hygieneClinic?: number;
+  // Soft FM dynamic KPIs
+  upliftingPresence?: number;
+  selfInitiated?: number;
+  supplyRefill?: number;
+  riderDepartment?: string;
 }
 
 export interface SoftFMStaff {

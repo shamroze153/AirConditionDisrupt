@@ -6,6 +6,7 @@ import { SoftFMEvaluation, SoftFMStaff, ValetLogEntry } from '../types';
 import { submitSoftFMEvaluation, submitSecurityEvaluation, fetchSoftFMEvaluations, fetchSecurityEvaluations, fetchValetData } from '../services/api';
 import { SOFT_FM_STAFF } from '../constants';
 
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, AreaChart, Area, LineChart, Line } from 'recharts';
 import { generateSecurityInsights } from '../services/aiService';
 
 interface SoftFMViewProps {
@@ -37,7 +38,7 @@ const StarRating: React.FC<{ value: number, onChange: (val: number) => void, lab
 );
 
 export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type }) => {
-  const [view, setView] = useState<'dashboard' | 'categories' | 'staff' | 'sub-category' | 'form' | 'self-view'>(type === 'security' ? 'dashboard' : 'categories');
+  const [view, setView] = useState<'dashboard' | 'categories' | 'staff' | 'sub-category' | 'form' | 'self-view'>('dashboard');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<'Parking' | 'Office' | null>(null);
   
@@ -105,7 +106,11 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
     utilityManagement: 0,
     cleaningQuality: 0,
     restroomHygiene: 0,
-    wasteManagement: 0
+    wasteManagement: 0,
+    upliftingPresence: 0,
+    selfInitiated: 0,
+    supplyRefill: 0,
+    riderDepartment: ''
   });
 
   useEffect(() => {
@@ -246,33 +251,40 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         supervisorScore += getWeightedPoints(formData.riderLog, 15);
         supervisorScore += getWeightedPoints(formData.pettyCash, 10);
         supervisorScore += getWeightedPoints(formData.courierLog, 15);
-        supervisorScore += getWeightedPoints(formData.consumableLog, 15);
+        supervisorScore += getWeightedPoints(formData.consumableLog, 10);
+        supervisorScore += getWeightedPoints(formData.selfInitiated, 5);
       } else if (selectedCategory === 'Rider') {
         supervisorScore = attendanceScore;
         // For Rider, we have some numerical inputs. We'll treat them as direct points for now or normalized.
         // User said: rides (nos), behavior (stars), km (nos), petrol (nos)
         // Let's assume the user enters a score out of 100 for the numerical ones, or we just use them.
         // To keep it consistent with 100% weightage, we'll treat the numerical inputs as "Score out of 100"
-        supervisorScore += (formData.numberOfRides / 100) * 25;
-        supervisorScore += getWeightedPoints(formData.behavior, 15);
-        supervisorScore += (formData.kmConsumed / 100) * 20;
-        supervisorScore += (formData.petrolConsumed / 100) * 25;
+        supervisorScore += (formData.numberOfRides / 100) * 30;
+        supervisorScore += getWeightedPoints(formData.behavior, 25);
+        supervisorScore += (formData.kmConsumed / 100) * 25;
+        supervisorScore += getWeightedPoints(formData.selfInitiated, 5);
       } else if (selectedCategory === 'Office Boy') {
         supervisorScore = attendanceScore;
-        supervisorScore += getWeightedPoints(formData.behavior, 20);
-        supervisorScore += getWeightedPoints(formData.kitchenHygiene, 25);
-        supervisorScore += getWeightedPoints(formData.meetingRoomReadiness, 20);
+        supervisorScore += getWeightedPoints(formData.behavior, 15);
+        supervisorScore += getWeightedPoints(formData.kitchenHygiene, 20);
+        supervisorScore += getWeightedPoints(formData.meetingRoomReadiness, 15);
         supervisorScore += getWeightedPoints(formData.utilityManagement, 20);
+        supervisorScore += getWeightedPoints(formData.selfInitiated, 5);
+        supervisorScore += getWeightedPoints(formData.upliftingPresence, 10);
       } else if (selectedCategory === 'Janitorial') {
         supervisorScore = attendanceScore;
-        supervisorScore += getWeightedPoints(formData.behavior, 20);
-        supervisorScore += getWeightedPoints(formData.cleaningQuality, 25);
-        supervisorScore += getWeightedPoints(formData.restroomHygiene, 20);
+        supervisorScore += getWeightedPoints(formData.behavior, 10);
+        supervisorScore += getWeightedPoints(formData.cleaningQuality, 20);
+        supervisorScore += getWeightedPoints(formData.restroomHygiene, 10);
         supervisorScore += getWeightedPoints(formData.wasteManagement, 20);
+        supervisorScore += getWeightedPoints(formData.supplyRefill, 10);
+        supervisorScore += getWeightedPoints(formData.selfInitiated, 5);
+        supervisorScore += getWeightedPoints(formData.upliftingPresence, 10);
       } else if (selectedCategory === 'Valet') {
         supervisorScore = attendanceScore;
         supervisorScore += getWeightedPoints(formData.behavior, 25);
-        supervisorScore += getWeightedPoints(formData.performance, 60);
+        supervisorScore += getWeightedPoints(formData.performance, 55);
+        supervisorScore += getWeightedPoints(formData.selfInitiated, 5);
       } else {
         supervisorScore = formData.attendance + formData.punctuality + formData.behavior + formData.performance;
       }
@@ -340,7 +352,11 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
         equipmentReadiness: formData.equipmentReadiness,
         medicineControl: formData.medicineControl,
         healthMonitoring: formData.healthMonitoring,
-        hygieneClinic: formData.hygieneClinic
+        hygieneClinic: formData.hygieneClinic,
+        upliftingPresence: formData.upliftingPresence,
+        selfInitiated: formData.selfInitiated,
+        supplyRefill: formData.supplyRefill,
+        riderDepartment: formData.riderDepartment
       };
 
       if (type === 'security') {
@@ -493,8 +509,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
           <button 
             onClick={() => {
               if (view === 'dashboard') onBack();
-              else if (view === 'categories' && type === 'security') setView('dashboard');
-              else if (view === 'categories') onBack();
+              else if (view === 'categories') setView('dashboard');
               else if (view === 'staff') setView('categories');
               else if (view === 'sub-category') setView('staff');
               else if (view === 'form') {
@@ -502,18 +517,17 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                 else setView('staff');
               }
               else if (view === 'self-view') {
-                if (type === 'security') setView('dashboard');
-                else setView('categories');
+                setView('dashboard');
               }
             }}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft size={20} />
             <span className="font-medium">
-              {view === 'dashboard' || (view === 'categories' && type === 'soft-fm') ? 'Back to Excellence Hub' : 'Back'}
+              {view === 'dashboard' ? 'Back to Excellence Hub' : 'Back'}
             </span>
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">{type === 'soft-fm' ? 'Soft FM' : 'Security'} Scorecard</h1>
+          <h1 className="text-2xl font-black text-gray-900 tracking-tighter italic uppercase">{type === 'soft-fm' ? 'Soft FM Metric' : 'Security & HSE Metric'}</h1>
         </div>
 
         <AnimatePresence mode="wait">
@@ -598,16 +612,18 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
+              className="space-y-6 pb-12"
             >
               {/* Live Status Header */}
-              <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-gray-100 sticky top-0 z-30">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
                     <div className="absolute inset-0 w-3 h-3 bg-emerald-500 rounded-full animate-ping opacity-75"></div>
                   </div>
-                  <span className="text-sm font-bold text-gray-600 uppercase tracking-wider">Security and HSE Metric</span>
+                  <span className="text-sm font-bold text-gray-600 uppercase tracking-widest leading-none">
+                    {type === 'security' ? 'Security and HSE Metric' : 'Soft FM Operational Intelligence'}
+                  </span>
                   <button 
                     onClick={() => loadEvaluations()}
                     disabled={loading}
@@ -616,107 +632,359 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                     <Activity size={14} />
                   </button>
                 </div>
-                <div className="text-xs text-gray-400 font-medium">
-                  Last updated: {new Date().toLocaleTimeString()}
+                <div className="flex items-center gap-4">
+                  <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                    Last Update: {new Date().toLocaleTimeString()}
+                  </div>
+                  <button
+                    onClick={() => setView('categories')}
+                    className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2 text-xs"
+                  >
+                    <Save size={14} />
+                    New Evaluation
+                  </button>
                 </div>
               </div>
+
+              {type === 'soft-fm' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Performance Analysis Chart */}
+                  <motion.div 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="lg:col-span-2 bg-white p-6 rounded-[2.5rem] shadow-xl border border-gray-50 overflow-hidden relative group"
+                  >
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 blur-[80px]"></div>
+                    <div className="flex items-center justify-between mb-8 relative z-10">
+                      <div>
+                        <h3 className="text-xl font-black text-gray-900 tracking-tighter italic uppercase">Domain Performance Spectrum</h3>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Cross-category Merit Benchmarking</p>
+                      </div>
+                      <div className="bg-indigo-50 p-2 rounded-xl text-indigo-600">
+                        <TrendingUp size={20} />
+                      </div>
+                    </div>
+                    
+                    <div className="h-[300px] w-full relative z-10">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={SOFT_FM_CATEGORIES.map(cat => {
+                            const catEvals = evaluations.filter(e => e.department === cat);
+                            const avg = catEvals.length > 0 
+                              ? catEvals.reduce((acc, curr) => acc + curr.finalScore, 0) / catEvals.length
+                              : 0;
+                            return { name: cat, score: parseFloat(avg.toFixed(1)) };
+                          })}
+                          margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1}/>
+                              <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis 
+                            dataKey="name" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 10, fontWeight: 800, fill: '#64748b' }}
+                            dy={10}
+                          />
+                          <YAxis 
+                            hide 
+                            domain={[0, 100]}
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              borderRadius: '16px', 
+                              border: 'none', 
+                              boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
+                              fontSize: '12px',
+                              fontWeight: 'bold'
+                            }}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="score" 
+                            stroke="#4f46e5" 
+                            strokeWidth={4}
+                            fillOpacity={1} 
+                            fill="url(#colorScore)" 
+                            animationDuration={2000}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </motion.div>
+
+                  {/* Distribution & AI Insights */}
+                  <motion.div 
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-indigo-900 p-8 rounded-[2.5rem] shadow-2xl text-white relative overflow-hidden flex flex-col justify-between group"
+                  >
+                    <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
+                    <div>
+                      <h3 className="text-xl font-black italic uppercase tracking-tighter mb-1">Operational Pulse</h3>
+                      <p className="text-[9px] font-bold text-indigo-300 uppercase tracking-widest mb-8">AI-Synthesized Health Index</p>
+                      
+                      <div className="space-y-6">
+                        {SOFT_FM_CATEGORIES.slice(0, 4).map((cat, i) => {
+                          const count = evaluations.filter(e => e.department === cat).length;
+                          const total = evaluations.length || 1;
+                          const percent = (count / total) * 100;
+                          
+                          return (
+                            <div key={cat} className="space-y-2">
+                              <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                                <span>{cat}</span>
+                                <span className="text-indigo-300">{percent.toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${percent}%` }}
+                                  transition={{ duration: 1, delay: i * 0.1 }}
+                                  className="h-full bg-indigo-400 shadow-[0_0_10px_#818cf8]"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="mt-8 pt-8 border-t border-white/10">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+                          <Zap size={16} className="text-amber-400" />
+                        </div>
+                        <p className="text-[11px] font-black italic uppercase">AI Forecasting</p>
+                      </div>
+                      <p className="text-[10px] font-medium text-indigo-100 leading-relaxed italic opacity-80">
+                        Based on current trajectory, {rankings[0]?.name || 'Top Talent'} is trending towards Elite Platinum certification for this quarter.
+                      </p>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+
+              {type === 'security' && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Security Compliance Chart */}
+                  <motion.div 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="lg:col-span-2 bg-slate-900 p-6 rounded-[2.5rem] shadow-xl border border-white/5 overflow-hidden relative group"
+                  >
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 blur-[80px]"></div>
+                    <div className="flex items-center justify-between mb-8 relative z-10">
+                      <div>
+                        <h3 className="text-xl font-black text-white tracking-tighter italic uppercase">Security Proficiency Spectrum</h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Cross-unit Tactical Benchmarking</p>
+                      </div>
+                      <div className="bg-white/10 p-2 rounded-xl text-rose-400">
+                        <ShieldCheck size={20} />
+                      </div>
+                    </div>
+                    
+                    <div className="h-[300px] w-full relative z-10">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={SECURITY_CATEGORIES.map(cat => {
+                            const catEvals = evaluations.filter(e => e.department === cat);
+                            const avg = catEvals.length > 0 
+                              ? catEvals.reduce((acc, curr) => acc + curr.finalScore, 0) / catEvals.length
+                              : 0;
+                            return { name: cat, score: parseFloat(avg.toFixed(1)) };
+                          })}
+                          margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff10" />
+                          <XAxis 
+                            dataKey="name" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 10, fontWeight: 800, fill: '#94a3b8' }}
+                            dy={10}
+                          />
+                          <YAxis 
+                            hide 
+                            domain={[0, 100]}
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              background: '#1e293b',
+                              borderRadius: '16px', 
+                              border: '1px solid rgba(255,255,255,0.1)', 
+                              boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              color: '#fff'
+                            }}
+                          />
+                          <Bar 
+                            dataKey="score" 
+                            fill="#f43f5e" 
+                            radius={[12, 12, 0, 0]}
+                            barSize={40}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </motion.div>
+
+                  {/* Operational Readiness */}
+                  <motion.div 
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden flex flex-col justify-between group border border-slate-100"
+                  >
+                    <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-rose-500/5 rounded-full blur-3xl"></div>
+                    <div>
+                      <h3 className="text-xl font-black italic uppercase tracking-tighter mb-1 text-slate-900">Tactical Readiness</h3>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-8">Unit-specific Alert Status</p>
+                      
+                      <div className="space-y-6">
+                        {SECURITY_CATEGORIES.map((cat, i) => {
+                          const catEvals = evaluations.filter(e => e.department === cat);
+                          const avg = catEvals.length > 0 
+                              ? catEvals.reduce((acc, curr) => acc + curr.finalScore, 0) / catEvals.length
+                              : 0;
+                          
+                          return (
+                            <div key={cat} className="space-y-2">
+                              <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                <span>{cat}</span>
+                                <span className={avg > 80 ? 'text-emerald-500' : 'text-amber-500'}>{avg.toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${avg}%` }}
+                                  transition={{ duration: 1, delay: i * 0.1 }}
+                                  className={`h-full ${avg > 80 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="mt-8 pt-8 border-t border-slate-100">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 bg-rose-50 text-rose-600 rounded-lg flex items-center justify-center">
+                          <Activity size={16} />
+                        </div>
+                        <p className="text-[11px] font-black italic uppercase text-slate-900">Live Status</p>
+                      </div>
+                      <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic">
+                        All security protocols are currently within acceptable operational parameters. Gate Access Control shows 98% efficiency.
+                      </p>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
 
               {/* Stats Overview */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <motion.div 
                   whileHover={{ y: -5 }}
-                  className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden group"
+                  className="bg-gradient-to-br from-amber-500 to-orange-600 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden group border border-amber-400/50"
                 >
                   <Trophy className="absolute -right-4 -bottom-4 w-24 h-24 opacity-20 group-hover:scale-110 transition-transform" />
-                  <p className="text-amber-100 text-sm font-bold uppercase mb-1">Elite Performer</p>
-                  <h3 className="text-2xl font-black truncate mb-2">{rankings[0]?.name || 'N/A'}</h3>
-                  <div className="flex items-center gap-2 bg-white/20 w-fit px-3 py-1 rounded-full text-xs font-bold">
+                  <p className="text-amber-100 text-[10px] font-black uppercase tracking-[0.2em] mb-1 italic">Peak Performer</p>
+                  <h3 className="text-2xl font-black truncate mb-2 italic tracking-tighter">{rankings[0]?.name || 'N/A'}</h3>
+                  <div className="flex items-center gap-2 bg-white/20 w-fit px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md italic">
                     <Star size={12} fill="currentColor" />
-                    {rankings[0]?.points || 0} Total Points
+                    {rankings[0]?.points?.toFixed(0) || 0} Total Index
                   </div>
                 </motion.div>
 
                 <motion.div 
                   whileHover={{ y: -5 }}
-                  className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden group"
+                  className="bg-white p-6 rounded-2xl shadow-xl text-slate-900 relative overflow-hidden group border border-slate-100"
                 >
-                  <Users className="absolute -right-4 -bottom-4 w-24 h-24 opacity-20 group-hover:scale-110 transition-transform" />
-                  <p className="text-indigo-100 text-sm font-bold uppercase mb-1">Force Strength</p>
-                  <h3 className="text-3xl font-black mb-2">{rankings.length}</h3>
-                  <div className="flex items-center gap-2 bg-white/20 w-fit px-3 py-1 rounded-full text-xs font-bold">
-                    Active Personnel Evaluated
+                  <div className="absolute -right-4 -bottom-4 bg-indigo-50 w-24 h-24 rounded-full group-hover:scale-110 transition-transform flex items-center justify-center">
+                    <Users className="w-12 h-12 text-indigo-100" />
+                  </div>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1 italic">Force Analysis</p>
+                  <h3 className="text-3xl font-black mb-2 italic tracking-tighter text-indigo-600">{rankings.length}</h3>
+                  <div className="flex items-center gap-2 bg-indigo-50 w-fit px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-indigo-600 italic">
+                    Personnel Monitored
                   </div>
                 </motion.div>
 
                 <motion.div 
                   whileHover={{ y: -5 }}
-                  className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden group"
+                  className="bg-emerald-600 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden group border border-emerald-500"
                 >
-                  <Zap className="absolute -right-4 -bottom-4 w-24 h-24 opacity-20 group-hover:scale-110 transition-transform" />
-                  <p className="text-emerald-100 text-sm font-bold uppercase mb-1">Operational Excellence</p>
-                  <h3 className="text-3xl font-black mb-2">
+                  <div className="absolute -right-4 -bottom-4 bg-white/10 w-24 h-24 rounded-full group-hover:scale-110 transition-transform flex items-center justify-center">
+                    <BarChart3 className="w-12 h-12 text-white/10" />
+                  </div>
+                  <p className="text-emerald-100 text-[10px] font-black uppercase tracking-[0.2em] mb-1 italic">Excellence Score</p>
+                  <h3 className="text-3xl font-black mb-2 italic tracking-tighter">
                     {rankings.length > 0 
                       ? (rankings.reduce((acc, curr) => acc + curr.average, 0) / rankings.length).toFixed(1)
                       : '0'}
                   </h3>
-                  <div className="flex items-center gap-2 bg-white/20 w-fit px-3 py-1 rounded-full text-xs font-bold">
-                    Average Performance Index
+                  <div className="flex items-center gap-2 bg-white/20 w-fit px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md italic">
+                    Average Operational ROI
                   </div>
                 </motion.div>
               </div>
 
               <div className="grid grid-cols-1 gap-6">
                 {/* Leaderboard */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-                  <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                    <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                      <ShieldCheck className="text-indigo-600" size={24} />
-                      Personnel Rankings
+                <div className="bg-white rounded-[2rem] shadow-xl border border-gray-100 overflow-hidden flex flex-col">
+                  <div className="p-6 md:p-8 border-b border-gray-100 flex items-center justify-between bg-gray-50/30">
+                    <h3 className="text-xl font-black text-gray-900 flex items-center gap-3 italic uppercase tracking-tighter">
+                      <Medal className="text-indigo-600" size={28} />
+                      Live Personnel Rankings
                     </h3>
-                    <button
-                      onClick={() => setView('categories')}
-                      className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-md flex items-center gap-2 text-sm"
-                    >
-                      <Save size={16} />
-                      New Evaluation
-                    </button>
+                    <div className="flex items-center bg-white border border-gray-200 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                      Top Performance Data
+                    </div>
                   </div>
                   <div className="overflow-x-auto flex-1">
                     <table className="w-full">
-                      <thead className="bg-gray-50/50">
-                        <tr>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Rank</th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Personnel</th>
-                          <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Points</th>
-                          <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
+                      <thead>
+                        <tr className="bg-gray-50/50">
+                          <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] italic">Rank Status</th>
+                          <th className="px-8 py-5 text-left text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] italic">Personnel Protocol</th>
+                          <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] italic">Merit Score</th>
+                          <th className="px-8 py-5 text-center text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] italic">Intelligence</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {rankings.length > 0 ? (
                           rankings.map((staff, index) => (
-                            <tr key={staff.name} className="hover:bg-indigo-50/30 transition-colors group">
-                              <td className="px-6 py-4 whitespace-nowrap">
+                            <tr key={staff.name} className="hover:bg-indigo-50/40 transition-all group cursor-default">
+                              <td className="px-8 py-6 whitespace-nowrap">
                                 <div className="flex items-center gap-3">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${
+                                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-sm transition-all group-hover:scale-110 ${
                                     index === 0 ? 'bg-amber-100 text-amber-600 border border-amber-200' :
                                     index === 1 ? 'bg-slate-100 text-slate-500 border border-slate-200' :
                                     index === 2 ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                                    'bg-gray-50 text-gray-400 border border-gray-100'
+                                    'bg-white text-gray-400 border border-gray-100'
                                   }`}>
-                                    {index + 1}
+                                    {index + 1 < 10 ? `0${index + 1}` : index + 1}
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
+                              <td className="px-8 py-6 whitespace-nowrap">
                                 <div>
-                                  <div className="font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">{staff.name}</div>
-                                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{staff.dept}</div>
+                                  <div className="font-black text-gray-900 text-base italic tracking-tighter group-hover:text-indigo-600 transition-colors uppercase">{staff.name}</div>
+                                  <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] italic mt-0.5">{staff.dept}</div>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right">
-                                <div className="text-lg font-black text-indigo-600">{staff.points.toFixed(1)}</div>
+                              <td className="px-8 py-6 whitespace-nowrap text-right">
+                                <div className="text-xl font-black text-indigo-600 italic tracking-tighter">{staff.points.toFixed(0)}</div>
+                                <div className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest">Calculated Merit</div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <td className="px-8 py-6 whitespace-nowrap text-center">
                                 <button
                                   onClick={() => {
                                     const staffEvals = evaluations.filter(e => e.name === staff.name);
@@ -724,18 +992,20 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                                     setEditingStaff({ name: staff.name, dept: staff.dept, months });
                                     setSelectedMonth(months[0] || `Monthly Log ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}`);
                                   }}
-                                  className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                  title="Edit Points"
+                                  className="px-4 py-2 bg-gray-50 group-hover:bg-indigo-600 group-hover:text-white text-gray-400 rounded-xl transition-all font-black text-[9px] uppercase tracking-widest border border-gray-100 group-hover:border-indigo-600 italic"
                                 >
-                                  <MessageSquare size={16} />
+                                  Refine Points
                                 </button>
                               </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={4} className="px-6 py-12 text-center text-gray-400 font-medium">
-                              No operational data recorded.
+                            <td colSpan={4} className="px-8 py-20 text-center text-gray-400 font-bold uppercase tracking-[0.3em] italic">
+                              <div className="flex flex-col items-center gap-4">
+                                <Activity className="w-12 h-12 text-gray-100 animate-pulse" />
+                                Monitoring active... No data points captured
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -745,37 +1015,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                 </div>
               </div>
 
-              {/* Self View Shortcut */}
-              {type !== 'security' && (
-                <div className="bg-indigo-600 p-8 rounded-3xl shadow-xl shadow-indigo-200 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
-                  <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
-                    <div className="text-white">
-                      <h4 className="text-2xl font-black mb-2">Personnel Access Portal</h4>
-                      <p className="text-indigo-100 font-medium opacity-80">Access your individual performance metrics and historical data.</p>
-                    </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                      <input 
-                        type="text" 
-                        placeholder="Enter Personnel Name..."
-                        value={searchName}
-                        onChange={(e) => setSearchName(e.target.value)}
-                        className="flex-1 md:w-72 px-6 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-bold"
-                      />
-                      <button 
-                        onClick={() => {
-                          handleCheckScore();
-                          setView('self-view');
-                        }}
-                        className="bg-white text-indigo-600 px-8 py-4 rounded-2xl font-black hover:bg-indigo-50 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap"
-                      >
-                        <Search size={20} />
-                        Access
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Self View Shortcut Hidden */}
             </motion.div>
           )}
 
@@ -815,34 +1055,7 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                 </button>
               ))}
               
-              {type !== 'security' && (
-                <div className="col-span-full mt-8 pt-8 border-t border-gray-200">
-                  <div className="bg-indigo-50 p-6 rounded-2xl">
-                    <h3 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                      <User size={20} />
-                      Staff Self-View
-                    </h3>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="Enter your name..."
-                        value={searchName}
-                        onChange={(e) => setSearchName(e.target.value)}
-                        className="flex-1 px-4 py-2 rounded-xl border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <button 
-                        onClick={() => {
-                          handleCheckScore();
-                          setView('self-view');
-                        }}
-                        className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
-                      >
-                        Check Score
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Staff Self-View Hidden */}
             </motion.div>
           )}
 
@@ -1068,18 +1281,33 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                         <>
                           <StarRating label="Interpersonal & Professional Behavior (15%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
                           <StarRating label="Visitor Management Log Precision (15%)" value={formData.visitorLog} onChange={(val) => setFormData({...formData, visitorLog: val})} />
-                          <StarRating label="Rider Coordination & Log (15%)" value={formData.riderLog} onChange={(val) => setFormData({...formData, riderLog: val})} />
-                          <StarRating label="Petty Cash Accountability (10%)" value={formData.pettyCash} onChange={(val) => setFormData({...formData, pettyCash: val})} />
+                          <StarRating label="rider coordination and log / checklist (15%)" value={formData.riderLog} onChange={(val) => setFormData({...formData, riderLog: val})} />
+                          <StarRating label="Petty Cash Accountability / daily visits (10%)" value={formData.pettyCash} onChange={(val) => setFormData({...formData, pettyCash: val})} />
                           <StarRating label="Courier & Dispatch Management (15%)" value={formData.courierLog} onChange={(val) => setFormData({...formData, courierLog: val})} />
-                          <StarRating label="Consumables Inventory Control (15%)" value={formData.consumableLog} onChange={(val) => setFormData({...formData, consumableLog: val})} />
+                          <StarRating label="Consumables Inventory Control (10%)" value={formData.consumableLog} onChange={(val) => setFormData({...formData, consumableLog: val})} />
+                          <StarRating label="Self initiated (5%)" value={formData.selfInitiated} onChange={(val) => setFormData({...formData, selfInitiated: val})} />
                         </>
                       )}
 
                       {selectedCategory === 'Rider' && (
                         <>
                           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
+                            <label className="block text-sm font-black text-gray-800 mb-3">Assign Department</label>
+                            <select 
+                              value={formData.riderDepartment}
+                              onChange={(e) => setFormData({...formData, riderDepartment: e.target.value})}
+                              className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-bold"
+                            >
+                              <option value="">Select Department...</option>
+                              <option value="HR">HR</option>
+                              <option value="Finance">Finance</option>
+                              <option value="Admin">Admin</option>
+                              <option value="Others">Others</option>
+                            </select>
+                          </div>
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
                             <label className="block text-sm font-black text-gray-800 mb-3 flex items-center justify-between">
-                              Total Monthly Deliveries (25%)
+                              Total Rides (30%)
                               <Bike size={18} className="text-emerald-500" />
                             </label>
                             <input 
@@ -1090,9 +1318,9 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                               placeholder="0"
                             />
                           </div>
-                          <StarRating label="Road Discipline & Behavior (15%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Road Discipline & Behavior (25%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
                           <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
-                            <label className="block text-sm font-black text-gray-800 mb-3">Mileage / KM Log (20%)</label>
+                            <label className="block text-sm font-black text-gray-800 mb-3">Mileage / KM Log (25%)</label>
                             <input 
                               type="number" 
                               value={formData.kmConsumed}
@@ -1101,41 +1329,38 @@ export const SoftFMView: React.FC<SoftFMViewProps> = ({ onBack, isAdmin, type })
                               placeholder="0"
                             />
                           </div>
-                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-500 transition-colors">
-                            <label className="block text-sm font-black text-gray-800 mb-3">Fuel Consumption Control (25%)</label>
-                            <input 
-                              type="number" 
-                              value={formData.petrolConsumed}
-                              onChange={(e) => setFormData({...formData, petrolConsumed: parseInt(e.target.value) || 0})}
-                              className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-bold text-lg"
-                              placeholder="0"
-                            />
-                          </div>
+                          <StarRating label="Self initiated (5%)" value={formData.selfInitiated} onChange={(val) => setFormData({...formData, selfInitiated: val})} />
                         </>
                       )}
 
                       {selectedCategory === 'Office Boy' && (
                         <>
-                          <StarRating label="Professional Mannerism (20%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
-                          <StarRating label="Kitchen & Pantry Standard (25%)" value={formData.kitchenHygiene} onChange={(val) => setFormData({...formData, kitchenHygiene: val})} />
-                          <StarRating label="Collaboration Space Readiness (20%)" value={formData.meetingRoomReadiness} onChange={(val) => setFormData({...formData, meetingRoomReadiness: val})} />
+                          <StarRating label="Professional Mannerism (15%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Kitchen & Pantry Standard (20%)" value={formData.kitchenHygiene} onChange={(val) => setFormData({...formData, kitchenHygiene: val})} />
+                          <StarRating label="Collaboration Space Readiness (15%)" value={formData.meetingRoomReadiness} onChange={(val) => setFormData({...formData, meetingRoomReadiness: val})} />
                           <StarRating label="Smart utility Management (Energy conservation/AC/Lights) (20%)" value={formData.utilityManagement} onChange={(val) => setFormData({...formData, utilityManagement: val})} />
+                          <StarRating label="Uplifting Presence (10%)" value={formData.upliftingPresence} onChange={(val) => setFormData({...formData, upliftingPresence: val})} />
+                          <StarRating label="Self initiated (5%)" value={formData.selfInitiated} onChange={(val) => setFormData({...formData, selfInitiated: val})} />
                         </>
                       )}
 
                       {selectedCategory === 'Janitorial' && (
                         <>
-                          <StarRating label="Hygiene Protocol Compliance (20%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
-                          <StarRating label="Deep Cleaning Precision (25%)" value={formData.cleaningQuality} onChange={(val) => setFormData({...formData, cleaningQuality: val})} />
-                          <StarRating label="Restroom Sanitization Score (20%)" value={formData.restroomHygiene} onChange={(val) => setFormData({...formData, restroomHygiene: val})} />
-                          <StarRating label="Eco-Waste Management (20%)" value={formData.wasteManagement} onChange={(val) => setFormData({...formData, wasteManagement: val})} />
+                          <StarRating label="Hygiene Protocol Compliance (10%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
+                          <StarRating label="Deep Cleaning Precision (20%)" value={formData.cleaningQuality} onChange={(val) => setFormData({...formData, cleaningQuality: val})} />
+                          <StarRating label="Restroom Sanitization Score (10%)" value={formData.restroomHygiene} onChange={(val) => setFormData({...formData, restroomHygiene: val})} />
+                          <StarRating label="Checklist completion (20%)" value={formData.wasteManagement} onChange={(val) => setFormData({...formData, wasteManagement: val})} />
+                          <StarRating label="Supply Refill Efficiency (10%)" value={formData.supplyRefill} onChange={(val) => setFormData({...formData, supplyRefill: val})} />
+                          <StarRating label="Uplifting Presence (10%)" value={formData.upliftingPresence} onChange={(val) => setFormData({...formData, upliftingPresence: val})} />
+                          <StarRating label="Self initiated (5%)" value={formData.selfInitiated} onChange={(val) => setFormData({...formData, selfInitiated: val})} />
                         </>
                       )}
 
                       {selectedCategory === 'Valet' && (
                         <>
                           <StarRating label="Customer Interaction & Behavior (25%)" value={formData.behavior} onChange={(val) => setFormData({...formData, behavior: val})} />
-                          <StarRating label="Fleet Management Efficiency (60%)" value={formData.performance} onChange={(val) => setFormData({...formData, performance: val})} />
+                          <StarRating label="Fleet Management Efficiency (55%)" value={formData.performance} onChange={(val) => setFormData({...formData, performance: val})} />
+                          <StarRating label="Self initiated (5%)" value={formData.selfInitiated} onChange={(val) => setFormData({...formData, selfInitiated: val})} />
                         </>
                       )}
                     </>
